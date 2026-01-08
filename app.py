@@ -560,7 +560,7 @@ def main():
         st.markdown("---")
         st.markdown("### 🔗 Links")
         st.markdown("[📊 Kriterion Quant](https://kriterionquant.com)")
-        st.markdown("[📘 Documentazione](https://kriterionquant.com/docs)")
+        
     
     # --- CARICAMENTO DATI ---
     with st.spinner('🔄 Caricamento dati e training modelli...'):
