@@ -1,0 +1,16 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Ambienti virtuali
+.venv
+venv/
+env/
+
+# Dati locali
+*.csv
+*.json
+*.html
+
+# Streamlit secrets (NON caricare mai questo file)
+.streamlit/secrets.toml
