@@ -52,12 +52,14 @@ st.markdown("""
         margin: 0;
         font-size: 1.8rem;
         font-weight: 700;
+        color: white !important; /* Forza titolo bianco su sfondo scuro */
     }
     
     .main-header p {
         margin: 8px 0 0 0;
         opacity: 0.85;
         font-size: 0.95rem;
+        color: #e0e0e0 !important; /* Forza sottotitolo chiaro */
     }
     
     /* Signal Banner */
@@ -67,23 +69,27 @@ st.markdown("""
         text-align: center;
         margin-bottom: 25px;
         box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        color: #000000 !important; /* CORREZIONE: Testo nero su sfondo colorato chiaro */
     }
     
     .signal-banner h2 {
         margin: 0 0 10px 0;
         font-size: 2rem;
         font-weight: 700;
+        /* Il colore h2 viene impostato inline dinamicamente, quindi ok */
     }
     
     .signal-banner .action {
         font-size: 1.1rem;
         margin: 10px 0;
+        color: #000000 !important; /* CORREZIONE: Forza testo nero */
     }
     
     .signal-banner .metrics {
         font-size: 0.9rem;
         opacity: 0.9;
         margin-top: 15px;
+        color: #000000 !important; /* CORREZIONE: Forza testo nero */
     }
     
     /* Metric Cards */
@@ -94,10 +100,11 @@ st.markdown("""
         box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         text-align: center;
         border-left: 4px solid #007bff;
+        color: #212529 !important; /* CORREZIONE: Testo scuro su sfondo bianco */
     }
     
     .metric-card h4 {
-        color: #6c757d;
+        color: #6c757d !important;
         font-size: 0.85rem;
         text-transform: uppercase;
         margin: 0 0 8px 0;
@@ -107,13 +114,13 @@ st.markdown("""
     .metric-card .value {
         font-size: 1.8rem;
         font-weight: 700;
-        color: #212529;
+        color: #212529 !important;
         margin: 0;
     }
     
     .metric-card .sub {
         font-size: 0.85rem;
-        color: #6c757d;
+        color: #6c757d !important;
         margin-top: 5px;
     }
     
@@ -124,21 +131,25 @@ st.markdown("""
         padding: 15px 20px;
         border-radius: 0 8px 8px 0;
         margin: 15px 0;
+        color: #212529 !important; /* CORREZIONE: Testo scuro su box chiaro */
     }
     
     .info-box.warning {
         border-color: #ffc107;
         background: #fff9e6;
+        color: #555555 !important;
     }
     
     .info-box.danger {
         border-color: #dc3545;
         background: #fff5f5;
+        color: #555555 !important;
     }
     
     .info-box.success {
         border-color: #28a745;
         background: #f0fff4;
+        color: #555555 !important;
     }
     
     /* Section Headers */
@@ -157,12 +168,14 @@ st.markdown("""
         padding: 20px;
         border-radius: 10px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        color: #212529 !important; /* CORREZIONE: Testo scuro su sfondo bianco */
     }
     
     .prob-bar {
         display: flex;
         align-items: center;
         margin-bottom: 12px;
+        color: #212529 !important;
     }
     
     .prob-bar .label {
@@ -191,6 +204,7 @@ st.markdown("""
         text-align: right;
         font-weight: 600;
         font-size: 1rem;
+        color: #212529 !important;
     }
     
     /* Model Comparison Cards */
@@ -200,6 +214,7 @@ st.markdown("""
         padding: 20px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         height: 100%;
+        color: #212529 !important; /* CORREZIONE: Testo scuro su sfondo bianco */
     }
     
     .model-card h4 {
@@ -218,6 +233,7 @@ st.markdown("""
         justify-content: space-between;
         padding: 8px 0;
         border-bottom: 1px solid #e9ecef;
+        color: #212529 !important;
     }
     
     .model-stat:last-child { border-bottom: none; }
@@ -225,7 +241,7 @@ st.markdown("""
     /* Footer */
     .footer {
         background: #212529;
-        color: white;
+        color: white !important; /* Footer resta testo bianco su fondo scuro */
         padding: 20px;
         border-radius: 10px;
         margin-top: 30px;
@@ -242,6 +258,7 @@ st.markdown("""
         border-radius: 0 8px 8px 0;
         margin-top: 20px;
         font-size: 0.85rem;
+        color: #212529 !important; /* CORREZIONE */
     }
     
     /* Hide Streamlit branding */
@@ -532,7 +549,8 @@ def main():
     
     # --- SIDEBAR ---
     with st.sidebar:
-        st.image("https://raw.githubusercontent.com/your-repo/logo.png", width=150)  # Placeholder
+        # Placeholder immagine, puoi rimuoverlo o metterne uno vero
+        # st.image("https://raw.githubusercontent.com/your-repo/logo.png", width=150)
         st.markdown("### ⚙️ Configurazione")
         
         st.markdown(f"""
