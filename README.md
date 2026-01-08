@@ -3,10 +3,6 @@
 ```markdown
 # 📉 Kriterion Volatility Monitor v2.0
 
-![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
-![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-ff4b4b)
-![License](https://img.shields.io/badge/License-MIT-green)
-![Status](https://img.shields.io/badge/Status-Active-success)
 
 **Kriterion Volatility Monitor** è una piattaforma di analisi quantitativa avanzata progettata per monitorare, classificare e prevedere i regimi di volatilità dell'S&P 500 (SPY).
 
