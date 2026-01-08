@@ -1,9 +1,12 @@
-# app.py
+# app.py - Kriterion Volatility Monitor v2.0
+# Dashboard Professionale per Analisi Volatilità SPY con HMM + GARCH
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from datetime import datetime, timedelta
 
 # Import moduli locali
 from data_loader import download_data, calculate_features
@@ -11,139 +14,1001 @@ from models import train_hmm, get_hmm_states, train_garch
 from config import TICKER, HMM_PARAMS, REGIME_COLORS, REGIME_LABELS, SIGNAL_CONFIG, THRESHOLDS
 from notifications import send_telegram_alert, format_message
 
-# Configurazione Pagina
+# ============================================================================
+# CONFIGURAZIONE PAGINA
+# ============================================================================
+
 st.set_page_config(
     page_title="Kriterion Volatility Monitor",
     page_icon="📉",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# --- CSS Custom per stile "Kriterion" ---
+# ============================================================================
+# CSS CUSTOM PROFESSIONALE
+# ============================================================================
+
 st.markdown("""
 <style>
-    .metric-card {background-color: #f0f2f6; padding: 20px; border-radius: 10px; text-align: center;}
-    .signal-banner {padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
+    /* Font e colori base */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
+    .main {
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* Header principale */
+    .main-header {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        color: white;
+        padding: 25px 30px;
+        border-radius: 12px;
+        margin-bottom: 25px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
+    
+    .main-header h1 {
+        margin: 0;
+        font-size: 1.8rem;
+        font-weight: 700;
+    }
+    
+    .main-header p {
+        margin: 8px 0 0 0;
+        opacity: 0.85;
+        font-size: 0.95rem;
+    }
+    
+    /* Signal Banner */
+    .signal-banner {
+        padding: 25px;
+        border-radius: 12px;
+        text-align: center;
+        margin-bottom: 25px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    
+    .signal-banner h2 {
+        margin: 0 0 10px 0;
+        font-size: 2rem;
+        font-weight: 700;
+    }
+    
+    .signal-banner .action {
+        font-size: 1.1rem;
+        margin: 10px 0;
+    }
+    
+    .signal-banner .metrics {
+        font-size: 0.9rem;
+        opacity: 0.9;
+        margin-top: 15px;
+    }
+    
+    /* Metric Cards */
+    .metric-card {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        text-align: center;
+        border-left: 4px solid #007bff;
+    }
+    
+    .metric-card h4 {
+        color: #6c757d;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        margin: 0 0 8px 0;
+        font-weight: 500;
+    }
+    
+    .metric-card .value {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #212529;
+        margin: 0;
+    }
+    
+    .metric-card .sub {
+        font-size: 0.85rem;
+        color: #6c757d;
+        margin-top: 5px;
+    }
+    
+    /* Info Boxes */
+    .info-box {
+        background: #f8f9fa;
+        border-left: 4px solid #007bff;
+        padding: 15px 20px;
+        border-radius: 0 8px 8px 0;
+        margin: 15px 0;
+    }
+    
+    .info-box.warning {
+        border-color: #ffc107;
+        background: #fff9e6;
+    }
+    
+    .info-box.danger {
+        border-color: #dc3545;
+        background: #fff5f5;
+    }
+    
+    .info-box.success {
+        border-color: #28a745;
+        background: #f0fff4;
+    }
+    
+    /* Section Headers */
+    .section-header {
+        font-size: 1.3rem;
+        font-weight: 600;
+        color: #212529;
+        margin: 30px 0 15px 0;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #e9ecef;
+    }
+    
+    /* Probability Bars */
+    .prob-container {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    
+    .prob-bar {
+        display: flex;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+    
+    .prob-bar .label {
+        width: 130px;
+        font-size: 0.9rem;
+        font-weight: 500;
+    }
+    
+    .prob-bar .bar-bg {
+        flex: 1;
+        height: 28px;
+        background: #e9ecef;
+        border-radius: 14px;
+        overflow: hidden;
+        margin: 0 12px;
+    }
+    
+    .prob-bar .bar-fill {
+        height: 100%;
+        border-radius: 14px;
+        transition: width 0.5s ease;
+    }
+    
+    .prob-bar .percentage {
+        width: 60px;
+        text-align: right;
+        font-weight: 600;
+        font-size: 1rem;
+    }
+    
+    /* Model Comparison Cards */
+    .model-card {
+        background: white;
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        height: 100%;
+    }
+    
+    .model-card h4 {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 3px solid;
+    }
+    
+    .model-card.hmm h4 { border-color: #dc3545; color: #dc3545; }
+    .model-card.garch h4 { border-color: #007bff; color: #007bff; }
+    
+    .model-stat {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+        border-bottom: 1px solid #e9ecef;
+    }
+    
+    .model-stat:last-child { border-bottom: none; }
+    
+    /* Footer */
+    .footer {
+        background: #212529;
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        margin-top: 30px;
+        font-size: 0.85rem;
+    }
+    
+    .footer a { color: #69b3ff; }
+    
+    /* Disclaimer */
+    .disclaimer {
+        background: rgba(255, 193, 7, 0.15);
+        border-left: 4px solid #ffc107;
+        padding: 15px;
+        border-radius: 0 8px 8px 0;
+        margin-top: 20px;
+        font-size: 0.85rem;
+    }
+    
+    /* Hide Streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; }
+    ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #a1a1a1; }
 </style>
 """, unsafe_allow_html=True)
 
-def main():
-    st.title("📉 Kriterion Quant - Volatility Regime Monitor")
-    st.markdown(f"**Ticker:** {TICKER} | **Modello:** HMM ({HMM_PARAMS['n_states']} Stati) + GARCH(1,1)")
+# ============================================================================
+# FUNZIONI HELPER PER GRAFICI
+# ============================================================================
 
-    # 1. Caricamento Dati
-    with st.spinner('Scaricamento dati da EODHD e calcolo features...'):
+def create_price_regime_chart(df, n_days=252):
+    """Grafico prezzo SPY con overlay regimi di volatilità."""
+    df_plot = df.tail(n_days).copy()
+    
+    fig = go.Figure()
+    
+    # Punti colorati per regime
+    for state in range(3):
+        mask = df_plot['HMM_State'] == state
+        if mask.sum() > 0:
+            fig.add_trace(go.Scatter(
+                x=df_plot.index[mask],
+                y=df_plot.loc[mask, 'Close'],
+                mode='markers',
+                name=REGIME_LABELS[state],
+                marker=dict(color=REGIME_COLORS[state], size=5, opacity=0.8),
+                hovertemplate='%{x}<br>$%{y:.2f}<br>' + REGIME_LABELS[state] + '<extra></extra>'
+            ))
+    
+    # Linea prezzo
+    fig.add_trace(go.Scatter(
+        x=df_plot.index,
+        y=df_plot['Close'],
+        mode='lines',
+        name='SPY',
+        line=dict(color='#1f77b4', width=1.5),
+        hoverinfo='skip'
+    ))
+    
+    fig.update_layout(
+        title=dict(text="📈 Prezzo SPY con Regimi di Volatilità", font=dict(size=16)),
+        xaxis_title="Data",
+        yaxis_title="Prezzo ($)",
+        hovermode='x unified',
+        height=450,
+        template='plotly_white',
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
+        margin=dict(l=50, r=30, t=80, b=50)
+    )
+    
+    return fig
+
+
+def create_probability_chart(df, n_days=252):
+    """Grafico stacked area delle probabilità dei regimi."""
+    df_plot = df.tail(n_days).copy()
+    
+    fig = go.Figure()
+    
+    fig.add_trace(go.Scatter(
+        x=df_plot.index, y=df_plot['P_Low'],
+        mode='lines', name='P(Low Vol)', stackgroup='one',
+        fillcolor='rgba(40, 167, 69, 0.7)',
+        line=dict(color='#28a745', width=0.5),
+        hovertemplate='Low: %{y:.1%}<extra></extra>'
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=df_plot.index, y=df_plot['P_Medium'],
+        mode='lines', name='P(Medium Vol)', stackgroup='one',
+        fillcolor='rgba(255, 193, 7, 0.7)',
+        line=dict(color='#ffc107', width=0.5),
+        hovertemplate='Medium: %{y:.1%}<extra></extra>'
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=df_plot.index, y=df_plot['P_High'],
+        mode='lines', name='P(High Vol)', stackgroup='one',
+        fillcolor='rgba(220, 53, 69, 0.7)',
+        line=dict(color='#dc3545', width=0.5),
+        hovertemplate='High: %{y:.1%}<extra></extra>'
+    ))
+    
+    # Linea soglia
+    fig.add_hline(y=THRESHOLDS['high_vol'], line_dash="dash", line_color="gray",
+                  annotation_text=f"Soglia Risk-Off ({THRESHOLDS['high_vol']*100:.0f}%)")
+    
+    fig.update_layout(
+        title=dict(text="📊 Probabilità Regimi HMM nel Tempo", font=dict(size=16)),
+        xaxis_title="Data",
+        yaxis_title="Probabilità",
+        yaxis=dict(tickformat='.0%', range=[0, 1]),
+        hovermode='x unified',
+        height=400,
+        template='plotly_white',
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
+        margin=dict(l=50, r=30, t=80, b=50)
+    )
+    
+    return fig
+
+
+def create_volatility_comparison_chart(df, garch_vol, n_days=120):
+    """Grafico confronto volatilità realizzata vs GARCH."""
+    df_plot = df.tail(n_days).copy()
+    
+    fig = go.Figure()
+    
+    # Volatilità realizzata (Garman-Klass)
+    fig.add_trace(go.Scatter(
+        x=df_plot.index,
+        y=df_plot['GK_Vol'] * 100,
+        mode='lines',
+        name='Realized Vol (GK)',
+        line=dict(color='#212529', width=2),
+        hovertemplate='Realized: %{y:.2f}%<extra></extra>'
+    ))
+    
+    # Ultima previsione GARCH (linea orizzontale)
+    fig.add_hline(y=garch_vol * 100, line_dash="dot", line_color="#007bff",
+                  annotation_text=f"GARCH Forecast: {garch_vol*100:.2f}%")
+    
+    # Media storica
+    avg_vol = df_plot['GK_Vol'].mean() * 100
+    fig.add_hline(y=avg_vol, line_dash="dash", line_color="#6c757d",
+                  annotation_text=f"Media: {avg_vol:.2f}%")
+    
+    fig.update_layout(
+        title=dict(text="📉 Volatilità Realizzata vs GARCH Forecast", font=dict(size=16)),
+        xaxis_title="Data",
+        yaxis_title="Volatilità Annualizzata (%)",
+        hovermode='x unified',
+        height=350,
+        template='plotly_white',
+        margin=dict(l=50, r=30, t=80, b=50)
+    )
+    
+    return fig
+
+
+def create_regime_distribution_chart(df):
+    """Grafico distribuzione volatilità per regime (violin plot o histogram)."""
+    fig = go.Figure()
+    
+    for state in range(3):
+        mask = df['HMM_State'] == state
+        vol_data = df.loc[mask, 'GK_Vol'] * 100
+        
+        fig.add_trace(go.Histogram(
+            x=vol_data,
+            name=REGIME_LABELS[state],
+            marker_color=REGIME_COLORS[state],
+            opacity=0.7,
+            nbinsx=40
+        ))
+    
+    fig.update_layout(
+        title=dict(text="📊 Distribuzione Volatilità per Regime", font=dict(size=16)),
+        xaxis_title="Volatilità Annualizzata (%)",
+        yaxis_title="Frequenza",
+        barmode='overlay',
+        height=350,
+        template='plotly_white',
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
+        margin=dict(l=50, r=30, t=80, b=50)
+    )
+    
+    return fig
+
+
+def create_combined_dashboard_chart(df, garch_vol, n_days=90):
+    """Grafico combinato con prezzo, volatilità e probabilità."""
+    df_plot = df.tail(n_days).copy()
+    
+    fig = make_subplots(
+        rows=3, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+        row_heights=[0.45, 0.30, 0.25],
+        subplot_titles=("Prezzo SPY & Regimi", "Volatilità Realizzata", "Probabilità P(High Vol)")
+    )
+    
+    # Row 1: Prezzo con regimi
+    for state in range(3):
+        mask = df_plot['HMM_State'] == state
+        if mask.sum() > 0:
+            fig.add_trace(go.Scatter(
+                x=df_plot.index[mask],
+                y=df_plot.loc[mask, 'Close'],
+                mode='markers',
+                name=REGIME_LABELS[state],
+                marker=dict(color=REGIME_COLORS[state], size=5),
+                showlegend=True
+            ), row=1, col=1)
+    
+    fig.add_trace(go.Scatter(
+        x=df_plot.index, y=df_plot['Close'],
+        mode='lines', line=dict(color='#1f77b4', width=1),
+        showlegend=False, hoverinfo='skip'
+    ), row=1, col=1)
+    
+    # Row 2: Volatilità
+    fig.add_trace(go.Scatter(
+        x=df_plot.index, y=df_plot['GK_Vol'] * 100,
+        mode='lines', name='Volatilità',
+        line=dict(color='#212529', width=2),
+        showlegend=False
+    ), row=2, col=1)
+    
+    fig.add_hline(y=garch_vol * 100, line_dash="dot", line_color="#007bff", row=2, col=1)
+    
+    # Row 3: P(High Vol)
+    fig.add_trace(go.Scatter(
+        x=df_plot.index, y=df_plot['P_High'],
+        mode='lines', name='P(High)',
+        line=dict(color='#dc3545', width=2),
+        fill='tozeroy', fillcolor='rgba(220, 53, 69, 0.2)',
+        showlegend=False
+    ), row=3, col=1)
+    
+    fig.add_hline(y=THRESHOLDS['high_vol'], line_dash="dash", line_color="gray", row=3, col=1)
+    
+    fig.update_layout(
+        height=650,
+        template='plotly_white',
+        hovermode='x unified',
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
+        margin=dict(l=50, r=30, t=80, b=50)
+    )
+    
+    fig.update_yaxes(title_text="Prezzo ($)", row=1, col=1)
+    fig.update_yaxes(title_text="Vol (%)", row=2, col=1)
+    fig.update_yaxes(title_text="Probabilità", tickformat='.0%', range=[0, 1], row=3, col=1)
+    
+    return fig
+
+
+def calculate_regime_stats(df):
+    """Calcola statistiche per ogni regime."""
+    stats = []
+    
+    for state in range(3):
+        mask = df['HMM_State'] == state
+        regime_data = df[mask]
+        
+        if len(regime_data) == 0:
+            continue
+        
+        # Calcola durate
+        state_changes = np.diff(np.concatenate([[0], mask.astype(int).values, [0]]))
+        starts = np.where(state_changes == 1)[0]
+        ends = np.where(state_changes == -1)[0]
+        durations = ends - starts
+        
+        stats.append({
+            'Regime': REGIME_LABELS[state],
+            'Giorni': len(regime_data),
+            'Frequenza': f"{len(regime_data)/len(df)*100:.1f}%",
+            'Vol Media': f"{regime_data['GK_Vol'].mean()*100:.2f}%",
+            'Vol Std': f"{regime_data['GK_Vol'].std()*100:.2f}%",
+            'Durata Media': f"{durations.mean():.1f} gg" if len(durations) > 0 else "N/A",
+            'Num Periodi': len(durations)
+        })
+    
+    return pd.DataFrame(stats)
+
+
+# ============================================================================
+# FUNZIONE PRINCIPALE
+# ============================================================================
+
+def main():
+    # --- HEADER ---
+    st.markdown("""
+    <div class="main-header">
+        <h1>📉 Kriterion Quant - Volatility Regime Monitor</h1>
+        <p>Sistema di analisi e previsione della volatilità SPY basato su Hidden Markov Model e GARCH</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # --- SIDEBAR ---
+    with st.sidebar:
+        st.image("https://raw.githubusercontent.com/your-repo/logo.png", width=150)  # Placeholder
+        st.markdown("### ⚙️ Configurazione")
+        
+        st.markdown(f"""
+        **Ticker:** {TICKER}  
+        **Modello HMM:** {HMM_PARAMS['n_states']} Stati  
+        **GARCH:** (1,1)  
+        """)
+        
+        st.markdown("---")
+        
+        # Selezione periodo visualizzazione
+        chart_period = st.selectbox(
+            "📅 Periodo Grafici",
+            options=[90, 180, 252, 504],
+            format_func=lambda x: f"{x} giorni (~{x//21} mesi)",
+            index=2
+        )
+        
+        st.markdown("---")
+        
+        st.markdown("### 📚 Legenda Segnali")
+        for sig_name, sig_conf in SIGNAL_CONFIG.items():
+            st.markdown(f"{sig_conf['icon']} **{sig_name}**")
+        
+        st.markdown("---")
+        st.markdown("### 🔗 Links")
+        st.markdown("[📊 Kriterion Quant](https://kriterionquant.com)")
+        st.markdown("[📘 Documentazione](https://kriterionquant.com/docs)")
+    
+    # --- CARICAMENTO DATI ---
+    with st.spinner('🔄 Caricamento dati e training modelli...'):
         try:
             df_raw = download_data()
             df = calculate_features(df_raw)
         except Exception as e:
-            st.error(f"Errore nel caricamento dati: {e}")
+            st.error(f"❌ Errore nel caricamento dati: {e}")
             st.stop()
-
-    # 2. Training Modelli (Cached functions would be better here for speed, but fit is fast enough)
+    
+    # --- TRAINING MODELLI ---
     model_hmm, scaler_hmm, state_mapping = train_hmm(df)
     states, posteriors = get_hmm_states(df, model_hmm, scaler_hmm, state_mapping)
     
-    # Aggiungi risultati al DF per visualizzazione
     df['HMM_State'] = states
     df['P_Low'] = posteriors[:, 0]
     df['P_Medium'] = posteriors[:, 1]
     df['P_High'] = posteriors[:, 2]
     
-    # GARCH Forecast
     garch_vol_ann, garch_res = train_garch(df)
-
-    # 3. Logica Segnali (Consensus)
+    
+    # --- CALCOLO SEGNALE ---
     last_row = df.iloc[-1]
     p_high = last_row['P_High']
     p_low = last_row['P_Low']
+    p_medium = last_row['P_Medium']
     
     # Trend P(High) ultimi 5 giorni
     trend_p_high = df['P_High'].diff(THRESHOLDS['trend_window']).iloc[-1]
     
-    # Definizione Segnale
+    # Confidenza (probabilità massima)
+    confidence = max(p_high, p_medium, p_low)
+    
+    # Logica segnale
     signal_type = "NEUTRAL"
     if p_high > THRESHOLDS['high_vol']:
         signal_type = "RISK_OFF"
-        # Se anche GARCH è alto (sopra media storica o soglia fissa), rafforza il segnale
         if garch_vol_ann > df['GK_Vol'].quantile(THRESHOLDS['garch_percentile']):
             signal_type = "STRONG_RISK_OFF"
     elif trend_p_high > THRESHOLDS['alert_change']:
         signal_type = "ALERT"
     elif p_low > THRESHOLDS['low_vol']:
         signal_type = "RISK_ON"
-
+    
     sig_conf = SIGNAL_CONFIG.get(signal_type, SIGNAL_CONFIG['NEUTRAL'])
-
-    # --- UI: KPI BANNER ---
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("SPY Price", f"${last_row['Close']:.2f}", f"{last_row['Returns']*100:.2f}%")
-    with col2:
-        st.metric("Current Vol (GK Annual)", f"{last_row['GK_Vol']*100:.2f}%")
-    with col3:
-        st.metric("GARCH Forecast (Next Day)", f"{garch_vol_ann*100:.2f}%")
-    with col4:
-        st.metric("HMM Regime", REGIME_LABELS[last_row['HMM_State']])
-
-    # --- UI: SIGNAL BOX ---
+    
+    # --- SIGNAL BANNER ---
     st.markdown(f"""
-    <div class="signal-banner" style="background-color: {sig_conf['color']}30; border: 2px solid {sig_conf['color']};">
-        <h2 style="color: {sig_conf['color']}; margin:0;">{sig_conf['icon']} {signal_type}</h2>
-        <p style="margin:0;"><strong>Azione:</strong> {sig_conf['action']}</p>
-        <p style="font-size: 0.8em; margin-top:5px;">P(High Vol): {p_high*100:.1f}% | Trend: {trend_p_high*100:+.1f}%</p>
+    <div class="signal-banner" style="background-color: {sig_conf['color']}20; border: 3px solid {sig_conf['color']};">
+        <h2 style="color: {sig_conf['color']};">{sig_conf['icon']} {signal_type}</h2>
+        <p class="action"><strong>Azione Consigliata:</strong> {sig_conf['action']}</p>
+        <p class="metrics">
+            📊 P(High Vol): <strong>{p_high*100:.1f}%</strong> | 
+            📈 Trend (5gg): <strong>{trend_p_high*100:+.1f}%</strong> | 
+            🎯 Confidenza: <strong>{confidence*100:.1f}%</strong>
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # --- KPI CARDS ---
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        daily_return = last_row['Returns'] * 100
+        delta_color = "normal" if daily_return >= 0 else "inverse"
+        st.metric(
+            label="💰 SPY Close",
+            value=f"${last_row['Close']:.2f}",
+            delta=f"{daily_return:.2f}%"
+        )
+    
+    with col2:
+        st.metric(
+            label="📊 Volatilità Attuale",
+            value=f"{last_row['GK_Vol']*100:.2f}%",
+            delta=None,
+            help="Volatilità Garman-Klass annualizzata (rolling 20gg)"
+        )
+    
+    with col3:
+        garch_delta = (garch_vol_ann - last_row['GK_Vol']) * 100
+        st.metric(
+            label="🔮 GARCH Forecast",
+            value=f"{garch_vol_ann*100:.2f}%",
+            delta=f"{garch_delta:+.2f}%",
+            help="Previsione volatilità 1-step ahead GARCH(1,1)"
+        )
+    
+    with col4:
+        st.metric(
+            label="🤖 Regime HMM",
+            value=REGIME_LABELS[last_row['HMM_State']],
+            delta=None
+        )
+    
+    with col5:
+        st.metric(
+            label="📅 Ultima Data",
+            value=last_row.name.strftime('%Y-%m-%d'),
+            delta=None
+        )
+    
+    # --- PROBABILITY BARS ---
+    st.markdown("### 📊 Probabilità Regimi HMM")
+    
+    col_prob1, col_prob2 = st.columns([2, 1])
+    
+    with col_prob1:
+        st.markdown(f"""
+        <div class="prob-container">
+            <div class="prob-bar">
+                <span class="label">🟢 Low Vol</span>
+                <div class="bar-bg">
+                    <div class="bar-fill" style="width: {p_low*100}%; background: #28a745;"></div>
+                </div>
+                <span class="percentage">{p_low*100:.1f}%</span>
+            </div>
+            <div class="prob-bar">
+                <span class="label">🟡 Medium Vol</span>
+                <div class="bar-bg">
+                    <div class="bar-fill" style="width: {p_medium*100}%; background: #ffc107;"></div>
+                </div>
+                <span class="percentage">{p_medium*100:.1f}%</span>
+            </div>
+            <div class="prob-bar">
+                <span class="label">🔴 High Vol</span>
+                <div class="bar-bg">
+                    <div class="bar-fill" style="width: {p_high*100}%; background: #dc3545;"></div>
+                </div>
+                <span class="percentage">{p_high*100:.1f}%</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_prob2:
+        # Info box interpretazione
+        if p_high > 0.5:
+            st.markdown("""
+            <div class="info-box danger">
+                <strong>⚠️ Attenzione</strong><br>
+                Alta probabilità di regime High Volatility. 
+                Considerare strategie di copertura o riduzione esposizione.
+            </div>
+            """, unsafe_allow_html=True)
+        elif p_low > 0.5:
+            st.markdown("""
+            <div class="info-box success">
+                <strong>✅ Mercato Tranquillo</strong><br>
+                Alta probabilità di regime Low Volatility. 
+                Condizioni favorevoli per strategie direzionali.
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div class="info-box warning">
+                <strong>⏳ Regime di Transizione</strong><br>
+                Nessun regime dominante. Il mercato potrebbe essere 
+                in fase di transizione. Monitorare attentamente.
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # --- TABS PRINCIPALI ---
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📈 Dashboard", 
+        "📊 Analisi Regimi", 
+        "📉 Volatilità", 
+        "📚 Metodologia",
+        "🛠 Test & Debug"
+    ])
+    
+    # =========================================================================
+    # TAB 1: DASHBOARD
+    # =========================================================================
+    with tab1:
+        st.markdown("#### 🎯 Analisi Combinata")
+        
+        st.markdown("""
+        <div class="info-box">
+            <strong>📖 Come leggere questo grafico:</strong><br>
+            Il grafico mostra tre pannelli sincronizzati: (1) Prezzo SPY con punti colorati in base al regime identificato,
+            (2) Volatilità realizzata Garman-Klass con la previsione GARCH, (3) Probabilità di essere in regime High Volatility.
+            Quando P(High Vol) supera la soglia del 60%, il sistema genera un segnale RISK-OFF.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        fig_combined = create_combined_dashboard_chart(df, garch_vol_ann, n_days=chart_period)
+        st.plotly_chart(fig_combined, use_container_width=True)
+        
+        # Grafico prezzo con regimi
+        st.markdown("#### 📈 Storico Prezzo e Regimi")
+        fig_price = create_price_regime_chart(df, n_days=chart_period)
+        st.plotly_chart(fig_price, use_container_width=True)
+    
+    # =========================================================================
+    # TAB 2: ANALISI REGIMI
+    # =========================================================================
+    with tab2:
+        st.markdown("#### 📊 Probabilità Regimi nel Tempo")
+        
+        st.markdown("""
+        <div class="info-box">
+            <strong>📖 Interpretazione:</strong><br>
+            Questo grafico mostra l'evoluzione delle probabilità dei tre regimi nel tempo.
+            Le aree colorate rappresentano la probabilità stimata dall'HMM di trovarsi in ciascun regime.
+            La linea tratteggiata indica la soglia del 60% per il segnale RISK-OFF.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        fig_probs = create_probability_chart(df, n_days=chart_period)
+        st.plotly_chart(fig_probs, use_container_width=True)
+        
+        # Statistiche regimi
+        st.markdown("#### 📋 Statistiche Regimi")
+        
+        regime_stats = calculate_regime_stats(df)
+        
+        col_stats1, col_stats2 = st.columns([2, 1])
+        
+        with col_stats1:
+            st.dataframe(
+                regime_stats,
+                use_container_width=True,
+                hide_index=True
+            )
+        
+        with col_stats2:
+            st.markdown("""
+            <div class="info-box">
+                <strong>📖 Note:</strong><br>
+                • <strong>Durata Media:</strong> giorni medi di permanenza nel regime<br>
+                • <strong>Vol Media:</strong> volatilità media annualizzata nel regime<br>
+                • <strong>Frequenza:</strong> percentuale di tempo trascorso nel regime
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Distribuzione volatilità per regime
+        st.markdown("#### 📊 Distribuzione Volatilità per Regime")
+        fig_dist = create_regime_distribution_chart(df)
+        st.plotly_chart(fig_dist, use_container_width=True)
+    
+    # =========================================================================
+    # TAB 3: VOLATILITÀ
+    # =========================================================================
+    with tab3:
+        st.markdown("#### 📉 Confronto Volatilità Realizzata vs GARCH")
+        
+        st.markdown("""
+        <div class="info-box">
+            <strong>📖 GARCH(1,1):</strong><br>
+            Il modello GARCH cattura la "memoria" della volatilità: shock recenti influenzano la previsione futura.
+            La linea blu tratteggiata mostra la previsione per il prossimo giorno. Se superiore alla media storica,
+            indica aspettativa di volatilità elevata.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        fig_vol = create_volatility_comparison_chart(df, garch_vol_ann, n_days=chart_period)
+        st.plotly_chart(fig_vol, use_container_width=True)
+        
+        # Metriche GARCH
+        col_garch1, col_garch2, col_garch3 = st.columns(3)
+        
+        with col_garch1:
+            st.metric(
+                "GARCH Forecast (1-step)",
+                f"{garch_vol_ann*100:.2f}%",
+                help="Previsione volatilità per domani"
+            )
+        
+        with col_garch2:
+            avg_vol = df['GK_Vol'].mean() * 100
+            st.metric(
+                "Media Storica",
+                f"{avg_vol:.2f}%",
+                help="Volatilità media nel periodo"
+            )
+        
+        with col_garch3:
+            percentile_rank = (df['GK_Vol'] < last_row['GK_Vol']).mean() * 100
+            st.metric(
+                "Percentile Attuale",
+                f"{percentile_rank:.0f}°",
+                help="Posizione della volatilità corrente rispetto allo storico"
+            )
+        
+        # Statistiche volatilità
+        st.markdown("#### 📊 Statistiche Volatilità")
+        
+        vol_stats = df['GK_Vol'].describe() * 100
+        vol_df = pd.DataFrame({
+            'Statistica': ['Media', 'Std Dev', 'Min', '25%', '50%', '75%', 'Max'],
+            'Valore': [f"{vol_stats['mean']:.2f}%", f"{vol_stats['std']:.2f}%",
+                      f"{vol_stats['min']:.2f}%", f"{vol_stats['25%']:.2f}%",
+                      f"{vol_stats['50%']:.2f}%", f"{vol_stats['75%']:.2f}%",
+                      f"{vol_stats['max']:.2f}%"]
+        })
+        
+        st.dataframe(vol_df, use_container_width=True, hide_index=True)
+    
+    # =========================================================================
+    # TAB 4: METODOLOGIA
+    # =========================================================================
+    with tab4:
+        st.markdown("## 📚 Metodologia")
+        
+        st.markdown("""
+        ### 🤖 Hidden Markov Model (HMM)
+        
+        L'HMM è un modello probabilistico che assume l'esistenza di **stati nascosti** (non osservabili direttamente)
+        che governano il comportamento delle variabili osservate. Nel nostro caso:
+        
+        - **Stati nascosti:** 3 regimi di volatilità (Low, Medium, High)
+        - **Variabile osservata:** Volatilità Garman-Klass
+        - **Output:** Probabilità di trovarsi in ciascun regime
+        
+        **Perché HMM per la volatilità?**
+        - La volatilità presenta **clustering**: periodi di alta volatilità tendono a raggrupparsi
+        - Esistono **cambi di regime** strutturali (crisi, normalità, euforia)
+        - L'HMM cattura la **persistenza** dei regimi tramite la matrice di transizione
+        
+        ---
+        
+        ### 📉 GARCH(1,1)
+        
+        Il modello GARCH (Generalized Autoregressive Conditional Heteroskedasticity) modella la varianza condizionale:
+        
+        ```
+        σ²ₜ = ω + α·r²ₜ₋₁ + β·σ²ₜ₋₁
+        ```
+        
+        Dove:
+        - **ω (omega):** costante base
+        - **α (alpha):** impatto degli shock recenti
+        - **β (beta):** persistenza della volatilità
+        - **α + β:** persistenza totale (tipicamente ~0.95 per equity)
+        
+        ---
+        
+        ### 🎯 Logica dei Segnali
+        
+        | Segnale | Condizione | Azione |
+        |---------|------------|--------|
+        | 🟢 RISK_ON | P(Low Vol) > 60% | Esposizione piena |
+        | 🟡 NEUTRAL | Nessuna condizione estrema | Allocazione standard |
+        | 🟠 ALERT | P(High Vol) in aumento >15% in 5gg | Preparare coperture |
+        | 🔴 RISK_OFF | P(High Vol) > 60% | Ridurre esposizione |
+        | 🔴🔴 STRONG_RISK_OFF | P(High Vol) > 60% AND GARCH alto | Copertura aggressiva |
+        
+        ---
+        
+        ### 📊 Volatilità Garman-Klass
+        
+        Stimatore della volatilità basato su prezzi OHLC, più efficiente del semplice range:
+        
+        ```
+        GK = 0.5·ln(H/L)² - (2·ln(2)-1)·ln(C/O)²
+        ```
+        
+        **Vantaggi:**
+        - Usa tutta l'informazione OHLC
+        - Più efficiente dello stimatore Close-to-Close
+        - Robusto per dati giornalieri
+        
+        ---
+        
+        ### ⚠️ Limitazioni
+        
+        1. **HMM identifica regimi in modo contemporaneo**, non predittivo
+        2. **GARCH assume stazionarietà** che può non valere durante crisi
+        3. **I segnali non sono raccomandazioni di investimento**
+        4. **Le performance passate non garantiscono risultati futuri**
+        """)
+        
+        st.markdown("""
+        <div class="disclaimer">
+            <strong>⚠️ Disclaimer:</strong><br>
+            Questo strumento è fornito a scopo educativo e di ricerca. 
+            I segnali generati non costituiscono consulenza finanziaria né raccomandazioni di investimento. 
+            L'utente è responsabile delle proprie decisioni di investimento.
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # =========================================================================
+    # TAB 5: TEST & DEBUG
+    # =========================================================================
+    with tab5:
+        st.markdown("### 🛠 Test & Debug")
+        
+        col_test1, col_test2 = st.columns(2)
+        
+        with col_test1:
+            st.markdown("#### 📱 Test Notifica Telegram")
+            st.info("Verifica che il bot Telegram sia configurato correttamente.")
+            
+            if st.button("📤 Invia Segnale Test", type="primary"):
+                msg = format_message(
+                    date=last_row.name.strftime('%Y-%m-%d'),
+                    price=last_row['Close'],
+                    hmm_probs=[p_low, p_medium, p_high],
+                    garch_vol=garch_vol_ann,
+                    regime_label=REGIME_LABELS[last_row['HMM_State']],
+                    signal_type=signal_type,
+                    trend_prob=trend_p_high
+                )
+                
+                with st.spinner("Invio in corso..."):
+                    success = send_telegram_alert(msg)
+                
+                if success:
+                    st.success("✅ Messaggio inviato con successo!")
+                else:
+                    st.error("❌ Errore nell'invio. Verifica le credenziali.")
+        
+        with col_test2:
+            st.markdown("#### 📊 Stato Sistema")
+            
+            st.markdown(f"""
+            | Parametro | Valore |
+            |-----------|--------|
+            | Dati caricati | {len(df):,} righe |
+            | Ultima data | {df.index[-1].strftime('%Y-%m-%d')} |
+            | Prima data | {df.index[0].strftime('%Y-%m-%d')} |
+            | HMM Stati | {HMM_PARAMS['n_states']} |
+            | GARCH | (1,1) |
+            """)
+        
+        # Dati raw
+        st.markdown("#### 📋 Ultimi Dati")
+        
+        display_cols = ['Close', 'Returns', 'GK_Vol', 'HMM_State', 'P_Low', 'P_Medium', 'P_High']
+        st.dataframe(
+            df[display_cols].tail(50).sort_index(ascending=False).round(4),
+            use_container_width=True
+        )
+    
+    # --- FOOTER ---
+    st.markdown("""
+    <div class="footer">
+        <strong>Kriterion Quant - Volatility Regime Monitor</strong><br>
+        Sviluppato per analisi e ricerca quantitativa | 
+        <a href="https://kriterionquant.com">kriterionquant.com</a><br>
+        <small>Dati: EODHD API | Modelli: HMM + GARCH | Framework: Streamlit</small>
     </div>
     """, unsafe_allow_html=True)
 
-    # --- TABS ---
-    tab1, tab2, tab3 = st.tabs(["📊 Dashboard Grafica", "🛠 Debug & Test", "📋 Dati"])
 
-    with tab1:
-        # GRAFICO 1: Prezzo e Regimi
-        fig_price = go.Figure()
-        
-        # Aggiunge punti colorati per regime
-        for state in range(3):
-            mask = df['HMM_State'] == state
-            fig_price.add_trace(go.Scatter(
-                x=df.index[mask], y=df.loc[mask, 'Close'],
-                mode='markers', name=REGIME_LABELS[state],
-                marker=dict(color=REGIME_COLORS[state], size=4)
-            ))
-            
-        fig_price.add_trace(go.Scatter(x=df.index, y=df['Close'], mode='lines', line=dict(color='gray', width=1), name='SPY'))
-        fig_price.update_layout(title="SPY Price & HMM Volatility Regimes", height=500, xaxis_title="Date", yaxis_title="Price")
-        st.plotly_chart(fig_price, use_container_width=True)
-
-        # GRAFICO 2: Probabilità
-        fig_probs = go.Figure()
-        fig_probs.add_trace(go.Scatter(x=df.index, y=df['P_Low'], stackgroup='one', name='Low Vol', line=dict(color=REGIME_COLORS[0], width=0)))
-        fig_probs.add_trace(go.Scatter(x=df.index, y=df['P_Medium'], stackgroup='one', name='Medium Vol', line=dict(color=REGIME_COLORS[1], width=0)))
-        fig_probs.add_trace(go.Scatter(x=df.index, y=df['P_High'], stackgroup='one', name='High Vol', line=dict(color=REGIME_COLORS[2], width=0)))
-        fig_probs.update_layout(title="Regime Probabilities (Stacked)", height=350, yaxis=dict(range=[0, 1]))
-        st.plotly_chart(fig_probs, use_container_width=True)
-
-    with tab2:
-        st.subheader("Test Notifiche")
-        st.info("Usa questo pulsante per verificare che il bot Telegram funzioni correttamente.")
-        
-        if st.button("Invia Segnale Test a Telegram"):
-            msg = format_message(
-                date=last_row.name.strftime('%Y-%m-%d'),
-                price=last_row['Close'],
-                hmm_probs=[p_low, last_row['P_Medium'], p_high],
-                garch_vol=garch_vol_ann,
-                regime_label=REGIME_LABELS[last_row['HMM_State']],
-                signal_type=signal_type,
-                trend_prob=trend_p_high
-            )
-            success = send_telegram_alert(msg)
-            if success:
-                st.success("Messaggio Inviato!")
-            else:
-                st.error("Errore invio. Controlla i logs o le chiavi.")
-
-    with tab3:
-        st.dataframe(df.tail(100).sort_index(ascending=False))
+# ============================================================================
+# ENTRY POINT
+# ============================================================================
 
 if __name__ == "__main__":
     main()
