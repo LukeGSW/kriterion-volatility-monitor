@@ -109,7 +109,7 @@ SIGNAL_CONFIG = {
     },
     'WATCH': {
         'icon': '⚠️',
-        'color': '#17a2b8',
+        'color': '#ffc107',
         'action': 'Regime instabile, alta incertezza. Ridurre size posizioni.',
         'description': 'HMM con bassa confidenza. Difficile classificare il regime corrente.',
         'vix_strategy': 'Straddle/Strangle su VIX'
