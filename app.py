@@ -69,27 +69,28 @@ st.markdown("""
         text-align: center;
         margin-bottom: 25px;
         box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        color: #000000 !important; /* CORREZIONE: Testo nero su sfondo colorato chiaro */
+        color: #ffffff !important; /* CORREZIONE: Testo nero su sfondo colorato chiaro */
     }
     
     .signal-banner h2 {
         margin: 0 0 10px 0;
         font-size: 2rem;
         font-weight: 700;
+        color: #ffffff !important;
         /* Il colore h2 viene impostato inline dinamicamente, quindi ok */
     }
     
     .signal-banner .action {
         font-size: 1.1rem;
         margin: 10px 0;
-        color: #000000 !important; /* CORREZIONE: Forza testo nero */
+        color: #ffffff !important; /* CORREZIONE: Forza testo nero */
     }
     
     .signal-banner .metrics {
         font-size: 0.9rem;
         opacity: 0.9;
         margin-top: 15px;
-        color: #000000 !important; /* CORREZIONE: Forza testo nero */
+        color: #ffffff !important; /* CORREZIONE: Forza testo nero */
     }
     
     /* Metric Cards */
