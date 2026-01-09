@@ -623,6 +623,10 @@ def main():
     elif p_low > THRESHOLDS['low_vol']:
         signal_type = "RISK_ON"
     
+    # Check confidenza bassa -> WATCH (allineato con run_daily_check.py)
+    if confidence < THRESHOLDS.get('confidence_min', 0.70) and signal_type == "NEUTRAL":
+        signal_type = "WATCH"
+    
     sig_conf = SIGNAL_CONFIG.get(signal_type, SIGNAL_CONFIG['NEUTRAL'])
     
     # --- SIGNAL BANNER ---
