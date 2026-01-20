@@ -3,14 +3,65 @@ import pandas as pd
 import numpy as np
 import requests
 import streamlit as st
+import yfinance as yf  # Aggiunto yfinance
+from datetime import datetime, timedelta
+
 from utils import get_secret
 from config import TICKER, START_DATE, HMM_PARAMS
 
 @st.cache_data(ttl=3600)  # Cache dei dati per 1 ora
 def download_data():
-    """Scarica i dati OHLCV da EODHD."""
-    api_key = get_secret('EODHD_API_KEY')
+    """
+    Scarica i dati OHLCV. 
+    Usa Yahoo Finance per il VIX (per evitare limiti abbonamento EODHD) 
+    e EODHD per tutto il resto.
+    """
     
+    # --- LOGICA SPECIFICA PER IL VIX (YAHOO FINANCE) ---
+    # Se il ticker è VIX o ^VIX, usiamo Yahoo Finance per avere i dati aggiornati
+    if 'VIX' in TICKER.upper():
+        print(f"⚠️ Ticker '{TICKER}' rilevato: switch forzato a Yahoo Finance (EODHD non include VIX).")
+        
+        # Gestione simbolo Yahoo (vuole ^VIX)
+        yf_ticker = TICKER if '^' in TICKER else f"^{TICKER}"
+        
+        try:
+            # FIX DATE: Usiamo period="10y" invece di start/end manuali.
+            # Questo risolve il problema del "venerdì scorso": Yahoo scarica automaticamente
+            # fino all'ultima chiusura disponibile, saltando correttamente le feste.
+            ticker_obj = yf.Ticker(yf_ticker)
+            df = ticker_obj.history(period="10y", auto_adjust=False)
+            
+            if df.empty:
+                raise Exception("Yahoo Finance non ha restituito dati.")
+
+            # Pulizia e standardizzazione colonne per compatibilità con il resto del codice
+            # Yahoo restituisce: Open, High, Low, Close, Adj Close, Volume
+            df = df.rename(columns={
+                'Open': 'Open', 'High': 'High', 'Low': 'Low', 
+                'Close': 'Close', 'Adj Close': 'Adj_Close', 'Volume': 'Volume'
+            })
+            
+            # Se manca Adj_Close (a volte succede con gli indici), lo creiamo uguale a Close
+            if 'Adj_Close' not in df.columns:
+                df['Adj_Close'] = df['Close']
+            
+            # Assicuriamoci che l'indice sia datetime e abbia il nome giusto
+            df.index.name = 'Date'
+            df.index = pd.to_datetime(df.index).tz_localize(None) # Rimuove timezone se presente
+            
+            # Filtriamo dalla data di inizio configurata
+            mask = df.index >= pd.to_datetime(START_DATE)
+            df = df.loc[mask]
+            
+            print(f"✅ Dati scaricati da Yahoo: {len(df)} righe (Ultima: {df.index[-1].strftime('%Y-%m-%d')})")
+            return df
+
+        except Exception as e:
+            raise Exception(f"Errore download Yahoo Finance: {str(e)}")
+
+    # --- LOGICA STANDARD (EODHD) PER ALTRI TICKER ---
+    api_key = get_secret('EODHD_API_KEY')
     if not api_key:
         raise ValueError("EODHD_API_KEY non trovata nei secrets o environment variables.")
 
