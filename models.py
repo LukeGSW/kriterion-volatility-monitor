@@ -1,7 +1,7 @@
 # models.py
 import numpy as np
 import pandas as pd
-from hmmlearn import hmm, base  # <--- IMPORTANTE: Importa 'base'
+from hmmlearn import hmm, base  # Importiamo 'base' per il patch
 from arch import arch_model
 from sklearn.preprocessing import StandardScaler
 from config import HMM_PARAMS, GARCH_PARAMS, REGIME_LABELS
@@ -9,23 +9,24 @@ from config import HMM_PARAMS, GARCH_PARAMS, REGIME_LABELS
 # =============================================================================
 # 🛠️ MONKEY PATCH: FIX HMMLEARN CRASH
 # =============================================================================
-# Le versioni recenti di hmmlearn lanciano ValueError se la somma delle probabilità
-# differisce da 1.0 anche per 1e-15. Questo patch disabilita quel controllo specifico.
+# Questo blocca il controllo eccessivamente rigido di hmmlearn sulla somma a 1.0
 def quiet_check_sum_1(self, name):
     """Non fare nulla. Fidati che la somma sia 1."""
     pass
 
-# Sovrascriviamo il metodo nella classe base
+# Applichiamo il patch alla classe base
 base.BaseHMM._check_sum_1 = quiet_check_sum_1
 # =============================================================================
 
 def train_hmm(df):
     """Addestra il modello HMM sui dati forniti."""
     
+    # 1. Preparazione dati
     X = df[['GK_Vol']].values
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     
+    # 2. Configurazione modello
     model = hmm.GaussianHMM(
         n_components=HMM_PARAMS['n_states'],
         covariance_type=HMM_PARAMS['covariance_type'],
@@ -34,15 +35,16 @@ def train_hmm(df):
         init_params='stmc'
     )
     
+    # 3. Addestramento (ora protetto dal Monkey Patch)
     model.fit(X_scaled)
     
-    # Nota: Con il Monkey Patch sopra, il "fix matematico" complesso 
-    # non è più strettamente necessario per evitare il crash, 
-    # ma una normalizzazione di base rimane buona pratica.
+    # 4. CALCOLO MAPPING (Queste sono le righe mancanti che causavano l'errore)
+    # Riordina gli stati per avere coerenza (0=Low, 1=Med, 2=High)
+    means = model.means_.flatten()
+    sorted_idx = np.argsort(means)
+    mapping = {original: new for new, original in enumerate(sorted_idx)}
     
     return model, scaler, mapping
-
-# ... resto del file invariato ...
 
 def get_hmm_states(df, model, scaler, mapping):
     """Inferenza degli stati HMM."""
@@ -66,10 +68,9 @@ def get_hmm_states(df, model, scaler, mapping):
 
 def train_garch(df):
     """Addestra GARCH(1,1) e fa previsione 1-step ahead."""
-    # GARCH vuole i ritorni in percentuale (es. 1.5 invece di 0.015) per convergere meglio
+    # GARCH vuole i ritorni in percentuale (es. 1.5 invece di 0.015)
     returns_pct = df['Returns'] * 100
     
-    # Usa una finestra recente per il fit (più reattivo) o tutto lo storico
     window = GARCH_PARAMS['window_size']
     train_data = returns_pct.iloc[-window:]
     
@@ -85,9 +86,7 @@ def train_garch(df):
     
     # Forecast 1 step
     forecast = res.forecast(horizon=1)
-    # Variance dell'ultimo step
     var_forecast = forecast.variance.values[-1, 0]
-    # Volatilità annualizzata stimata (ritorniamo a decimali)
     vol_forecast_ann = np.sqrt(var_forecast) / 100 * np.sqrt(252)
     
     return vol_forecast_ann, res
