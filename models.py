@@ -6,40 +6,50 @@ from arch import arch_model
 from sklearn.preprocessing import StandardScaler
 from config import HMM_PARAMS, GARCH_PARAMS, REGIME_LABELS
 
+# models.py
+
 def train_hmm(df):
     """Addestra il modello HMM sui dati forniti."""
     
-    # Preparazione dati
     X = df[['GK_Vol']].values
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     
-    # Configurazione Modello
     model = hmm.GaussianHMM(
         n_components=HMM_PARAMS['n_states'],
         covariance_type=HMM_PARAMS['covariance_type'],
         n_iter=HMM_PARAMS['n_iter'],
         random_state=HMM_PARAMS['random_state'],
-        # Aggiungiamo tolleranza per evitare warning di convergenza se necessario
-        tol=1e-4 
+        tol=1e-4, # Tolleranza aggiunta come consigliato
+        init_params='stmc' # Inizializza tutto
     )
     
-    # Training
     model.fit(X_scaled)
     
-    # --- FIX CRITICO PER ERRORI "sum_1" ---
-    # Forziamo la normalizzazione delle matrici di probabilità
-    # per correggere errori di floating point (es. 0.999999 != 1.0)
+    # =========================================================================
+    # FIX ROBUSTO "CHECK_SUM_1"
+    # =========================================================================
     
-    # 1. Normalizza Transizione (Transmat)
+    # 1. Normalizza la matrice di transizione (Transmat)
     # Divide ogni riga per la sua somma
     row_sums = model.transmat_.sum(axis=1)
     model.transmat_ /= row_sums[:, np.newaxis]
     
-    # 2. Normalizza Probabilità Iniziali (Startprob)
-    model.startprob_ /= model.startprob_.sum()
-    
-    # ---------------------------------------
+    # FORZATURA MATEMATICA: Aggiunge la differenza (epsilon) all'elemento max
+    # per garantire che np.sum sia ESATTAMENTE 1.0
+    for i in range(model.transmat_.shape[0]):
+        diff = 1.0 - np.sum(model.transmat_[i])
+        max_idx = np.argmax(model.transmat_[i])
+        model.transmat_[i, max_idx] += diff
+
+    # 2. Normalizza le probabilità iniziali (Startprob)
+    model.startprob_ /= np.sum(model.startprob_)
+    # Forzatura anche qui
+    diff_start = 1.0 - np.sum(model.startprob_)
+    max_start_idx = np.argmax(model.startprob_)
+    model.startprob_[max_start_idx] += diff_start
+
+    # =========================================================================
     
     # Riordina gli stati per avere coerenza (0=Low, 1=Med, 2=High)
     means = model.means_.flatten()
