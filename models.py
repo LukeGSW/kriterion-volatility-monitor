@@ -10,6 +10,7 @@ from config import HMM_PARAMS, GARCH_PARAMS, REGIME_LABELS
 # 🛠️ MONKEY PATCH: FIX HMMLEARN CRASH
 # =============================================================================
 # Questo blocca il controllo eccessivamente rigido di hmmlearn sulla somma a 1.0
+# che causava il ValueError "check_sum_1"
 def quiet_check_sum_1(self, name):
     """Non fare nulla. Fidati che la somma sia 1."""
     pass
