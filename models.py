@@ -8,22 +8,38 @@ from config import HMM_PARAMS, GARCH_PARAMS, REGIME_LABELS
 
 def train_hmm(df):
     """Addestra il modello HMM sui dati forniti."""
-    # Usiamo GK_Vol o Garman_Klass pura? 
-    # Dal notebook usavi GK_Vol (rolling), ma per reattività spesso si usa la proxy pura.
-    # Manteniamo la coerenza col notebook: usiamo la GK_Vol rolling standardizzata.
     
+    # Preparazione dati
     X = df[['GK_Vol']].values
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     
+    # Configurazione Modello
     model = hmm.GaussianHMM(
         n_components=HMM_PARAMS['n_states'],
         covariance_type=HMM_PARAMS['covariance_type'],
         n_iter=HMM_PARAMS['n_iter'],
-        random_state=HMM_PARAMS['random_state']
+        random_state=HMM_PARAMS['random_state'],
+        # Aggiungiamo tolleranza per evitare warning di convergenza se necessario
+        tol=1e-4 
     )
     
+    # Training
     model.fit(X_scaled)
+    
+    # --- FIX CRITICO PER ERRORI "sum_1" ---
+    # Forziamo la normalizzazione delle matrici di probabilità
+    # per correggere errori di floating point (es. 0.999999 != 1.0)
+    
+    # 1. Normalizza Transizione (Transmat)
+    # Divide ogni riga per la sua somma
+    row_sums = model.transmat_.sum(axis=1)
+    model.transmat_ /= row_sums[:, np.newaxis]
+    
+    # 2. Normalizza Probabilità Iniziali (Startprob)
+    model.startprob_ /= model.startprob_.sum()
+    
+    # ---------------------------------------
     
     # Riordina gli stati per avere coerenza (0=Low, 1=Med, 2=High)
     means = model.means_.flatten()
