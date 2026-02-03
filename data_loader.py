@@ -156,26 +156,50 @@ def _validate_market_close(df):
     return df
 
 def calculate_features(df):
-    """Calcola le features di volatilità."""
+    """Calcola le features di volatilità con pulizia outliers (Fix Robustness)."""
     if df.empty:
         raise ValueError("DataFrame vuoto in calculate_features")
 
     df = df.copy()
     
-    # Rendimenti Logaritmici
-    df['Returns'] = np.log(df['Close'] / df['Close'].shift(1))
+    # 1. Rendimenti Logaritmici (Close-to-Close)
+    # Aggiungiamo fillna(0) per sicurezza sulla prima riga
+    df['Returns'] = np.log(df['Close'] / df['Close'].shift(1)).fillna(0)
     
-    # Garman-Klass Volatility
-    log_hl = np.log(df['High'] / df['Low']) ** 2
-    log_co = np.log(df['Close'] / df['Open']) ** 2
+    # 2. Garman-Klass Volatility (Raw)
+    # Aggiungiamo una epsilon minuscola per evitare divisioni per zero se Low=0
+    epsilon = 1e-8 
+    
+    # Calcolo logaritmi sicuro
+    log_hl = np.log(df['High'] / (df['Low'] + epsilon)) ** 2
+    log_co = np.log(df['Close'] / (df['Open'] + epsilon)) ** 2
+    
     df['Garman_Klass'] = 0.5 * log_hl - (2 * np.log(2) - 1) * log_co
     
-    # Volatilità realizzata rolling
-    window = HMM_PARAMS['vol_window']
-    gk_clean = df['Garman_Klass'].clip(lower=0)
-    df['GK_Vol'] = np.sqrt(gk_clean.rolling(window=window).mean() * 252)
+    # --- FIX DATI SPORCHI ---
     
-    # Rimuoviamo NaN iniziali
+    # A. Gestione Infiniti: Sostituisce inf/-inf con NaN
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    
+    # B. Interpolazione: Ripara eventuali buchi creati sopra
+    df['Garman_Klass'] = df['Garman_Klass'].interpolate(method='linear').fillna(0)
+    
+    # C. Clipping (Il vero Fix): Taglia la varianza a livelli "umani".
+    # Una varianza giornaliera > 0.02 implica un movimento intraday > 14% dell'indice.
+    # Per SPY questo è un outlier tecnico al 99.9% (anche nel 2008/2020 è raro).
+    # Questo impedisce che un tick errato porti la vol al 500%.
+    df['Garman_Klass'] = df['Garman_Klass'].clip(upper=0.02)
+    
+    # ------------------------
+    
+    # 3. Volatilità realizzata rolling
+    window = HMM_PARAMS['vol_window']
+    
+    # Calcolo volatilità annualizzata
+    # sqrt(Variance_Day * 252) = Vol_Year
+    df['GK_Vol'] = np.sqrt(df['Garman_Klass'].rolling(window=window).mean() * 252)
+    
+    # Rimuoviamo NaN iniziali (i primi 20 giorni del rolling)
     df.dropna(inplace=True)
     
     # Check finale
