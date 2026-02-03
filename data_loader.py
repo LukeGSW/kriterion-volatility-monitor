@@ -155,54 +155,73 @@ def _validate_market_close(df):
             
     return df
 
+# data_loader.py - Sostituisci solo la funzione calculate_features
+
 def calculate_features(df):
-    """Calcola le features di volatilità con pulizia outliers (Fix Robustness)."""
+    """
+    Calcola le features di volatilità con filtro "Circuit Breaker".
+    Lascia passare i crash di mercato reali (es. Covid, Flash Crash) ma blocca
+    gli errori matematici o i bad ticks dell'API (es. Low=0).
+    """
     if df.empty:
         raise ValueError("DataFrame vuoto in calculate_features")
 
     df = df.copy()
     
-    # 1. Rendimenti Logaritmici (Close-to-Close)
-    # Aggiungiamo fillna(0) per sicurezza sulla prima riga
+    # 1. Rendimenti Logaritmici
     df['Returns'] = np.log(df['Close'] / df['Close'].shift(1)).fillna(0)
     
-    # 2. Garman-Klass Volatility (Raw)
-    # Aggiungiamo una epsilon minuscola per evitare divisioni per zero se Low=0
-    epsilon = 1e-8 
+    # --- CIRCUIT BREAKER FILTER (PHYSICS BASED) ---
+    # Invece di filtrare sulla media, filtriamo sulla "fisica" del mercato.
+    # Un range intraday (High-Low) > 25% su SPY è quasi impossibile (Circuit Breaker a -20%).
+    # Un errore dati spesso ha range > 90% (es. prezzo che va a zero).
     
-    # Calcolo logaritmi sicuro
+    # Calcola range percentuale intraday
+    df['Intraday_Range'] = (df['High'] - df['Low']) / df['Open']
+    
+    # Soglia di "impossibilità": 25% di escursione in un giorno
+    # Questo permette crash enormi (tipo 1987 o Covid) ma blocca i glitch.
+    IMPOSSIBLE_THRESHOLD = 0.25 
+    
+    # Identifica le righe con dati corrotti
+    bad_ticks = df['Intraday_Range'].abs() > IMPOSSIBLE_THRESHOLD
+    
+    if bad_ticks.sum() > 0:
+        print(f"⚠️ Rilevati {bad_ticks.sum()} tick con range > {IMPOSSIBLE_THRESHOLD*100}%. Correzione in corso...")
+        # Correzione: Impostiamo High e Low basandoci su Open e Close reali
+        # Assumiamo che Open e Close siano corretti (più stabili) e ricostruiamo un range "normale"
+        # Usiamo la media dei range degli ultimi 5 giorni per ricostruire la candela
+        avg_range = df['Intraday_Range'].rolling(5).median().fillna(0.01)
+        
+        # Sovrascriviamo solo le righe corrotte
+        df.loc[bad_ticks, 'High'] = df.loc[bad_ticks, 'Open'] * (1 + avg_range[bad_ticks]/2)
+        df.loc[bad_ticks, 'Low']  = df.loc[bad_ticks, 'Open'] * (1 - avg_range[bad_ticks]/2)
+    
+    # ---------------------------------------------
+
+    # 2. Garman-Klass Volatility
+    epsilon = 1e-8 
     log_hl = np.log(df['High'] / (df['Low'] + epsilon)) ** 2
     log_co = np.log(df['Close'] / (df['Open'] + epsilon)) ** 2
     
     df['Garman_Klass'] = 0.5 * log_hl - (2 * np.log(2) - 1) * log_co
     
-    # --- FIX DATI SPORCHI ---
-    
-    # A. Gestione Infiniti: Sostituisce inf/-inf con NaN
+    # Pulizia residui matematici
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    
-    # B. Interpolazione: Ripara eventuali buchi creati sopra
     df['Garman_Klass'] = df['Garman_Klass'].interpolate(method='linear').fillna(0)
     
-    # C. Clipping (Il vero Fix): Taglia la varianza a livelli "umani".
-    # Una varianza giornaliera > 0.02 implica un movimento intraday > 14% dell'indice.
-    # Per SPY questo è un outlier tecnico al 99.9% (anche nel 2008/2020 è raro).
-    # Questo impedisce che un tick errato porti la vol al 500%.
-    df['Garman_Klass'] = df['Garman_Klass'].clip(upper=0.02)
-    
-    # ------------------------
+    # Safety Cap Rilassato:
+    # Varianza 0.05 = ~22% movimento giornaliero. 
+    # Abbastanza alto da includere il Black Monday 1987 (-20.4%), ma blocca infiniti.
+    df['Garman_Klass'] = df['Garman_Klass'].clip(upper=0.05)
     
     # 3. Volatilità realizzata rolling
     window = HMM_PARAMS['vol_window']
-    
-    # Calcolo volatilità annualizzata
-    # sqrt(Variance_Day * 252) = Vol_Year
     df['GK_Vol'] = np.sqrt(df['Garman_Klass'].rolling(window=window).mean() * 252)
     
-    # Rimuoviamo NaN iniziali (i primi 20 giorni del rolling)
+    # Pulizia NaN iniziali
     df.dropna(inplace=True)
     
-    # Check finale
     if df.empty:
         raise ValueError("Storico insufficiente dopo il calcolo delle features.")
 
