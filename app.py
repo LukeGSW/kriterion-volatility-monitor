@@ -370,13 +370,15 @@ def create_probability_chart(df, n_days=252):
     return fig
 
 
-def create_volatility_comparison_chart(df, garch_vol, n_days=120):
-    """Grafico confronto volatilità realizzata vs GARCH."""
+# Inserire in app.py al posto della vecchia create_volatility_comparison_chart
+
+def create_volatility_comparison_chart(df, garch_vol, garch_res, n_days=120):
+    """Grafico confronto volatilità realizzata vs GARCH Conditional Volatility."""
     df_plot = df.tail(n_days).copy()
     
     fig = go.Figure()
     
-    # Volatilità realizzata (Garman-Klass)
+    # 1. Volatilità realizzata (Garman-Klass)
     fig.add_trace(go.Scatter(
         x=df_plot.index,
         y=df_plot['GK_Vol'] * 100,
@@ -386,9 +388,43 @@ def create_volatility_comparison_chart(df, garch_vol, n_days=120):
         hovertemplate='Realized: %{y:.2f}%<extra></extra>'
     ))
     
-    # Ultima previsione GARCH (linea orizzontale)
-    fig.add_hline(y=garch_vol * 100, line_dash="dot", line_color="#007bff",
-                  annotation_text=f"GARCH Forecast: {garch_vol*100:.2f}%")
+    # 2. GARCH Conditional Volatility (Storico dinamico)
+    # garch_res.conditional_volatility è la deviazione standard giornaliera in % (perché input * 100)
+    # Dobbiamo annualizzarla: sigma_daily * sqrt(252)
+    if garch_res is not None:
+        # Estraiamo la serie allineata con le date
+        cond_vol = garch_res.conditional_volatility
+        
+        # Annualizziamo
+        garch_history_ann = cond_vol * np.sqrt(252)
+        
+        # Filtriamo per le date del grafico
+        # Intersezione degli indici per evitare errori se le date non coincidono perfettamente
+        common_idx = df_plot.index.intersection(garch_history_ann.index)
+        garch_plot_series = garch_history_ann.loc[common_idx]
+        
+        fig.add_trace(go.Scatter(
+            x=garch_plot_series.index,
+            y=garch_plot_series.values,
+            mode='lines',
+            name='GARCH Conditional',
+            line=dict(color='#007bff', width=2, dash='solid'), # Linea solida blu
+            hovertemplate='GARCH: %{y:.2f}%<extra></extra>'
+        ))
+
+    # 3. Forecast Futuro (Puntino o linea tratteggiata finale)
+    # Mettiamo un marker alla fine per indicare la previsione "domani"
+    last_date = df_plot.index[-1]
+    fig.add_trace(go.Scatter(
+        x=[last_date + timedelta(days=1)], # Spostato di 1 giorno avanti
+        y=[garch_vol * 100],
+        mode='markers+text',
+        name='Forecast (1-step)',
+        marker=dict(color='#dc3545', size=10, symbol='diamond'),
+        text=[f"{garch_vol*100:.1f}%"],
+        textposition="top center",
+        showlegend=False
+    ))
     
     # Media storica
     avg_vol = df_plot['GK_Vol'].mean() * 100
@@ -396,13 +432,14 @@ def create_volatility_comparison_chart(df, garch_vol, n_days=120):
                   annotation_text=f"Media: {avg_vol:.2f}%")
     
     fig.update_layout(
-        title=dict(text="📉 Volatilità Realizzata vs GARCH Forecast", font=dict(size=16)),
+        title=dict(text="📉 Volatilità Realizzata vs GARCH Dinamico", font=dict(size=16)),
         xaxis_title="Data",
         yaxis_title="Volatilità Annualizzata (%)",
         hovermode='x unified',
-        height=350,
+        height=400,
         template='plotly_white',
-        margin=dict(l=50, r=30, t=80, b=50)
+        margin=dict(l=50, r=30, t=80, b=50),
+        legend=dict(orientation='h', y=1.02)
     )
     
     return fig
@@ -839,7 +876,7 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        fig_vol = create_volatility_comparison_chart(df, garch_vol_ann, n_days=chart_period)
+        fig_vol = create_volatility_comparison_chart(df, garch_vol_ann, garch_res, n_days=chart_period)
         st.plotly_chart(fig_vol, use_container_width=True)
         
         # Metriche GARCH
