@@ -475,8 +475,10 @@ def create_regime_distribution_chart(df):
     return fig
 
 
-def create_combined_dashboard_chart(df, garch_vol, n_days=90):
-    """Grafico combinato con prezzo, volatilità e probabilità."""
+# Incolla questo in app.py sostituendo la vecchia create_combined_dashboard_chart
+
+def create_combined_dashboard_chart(df, garch_vol, garch_res, n_days=90):
+    """Grafico combinato con prezzo, volatilità dinamica e probabilità."""
     df_plot = df.tail(n_days).copy()
     
     fig = make_subplots(
@@ -484,10 +486,10 @@ def create_combined_dashboard_chart(df, garch_vol, n_days=90):
         shared_xaxes=True,
         vertical_spacing=0.08,
         row_heights=[0.45, 0.30, 0.25],
-        subplot_titles=("Prezzo SPY & Regimi", "Volatilità Realizzata", "Probabilità P(High Vol)")
+        subplot_titles=("Prezzo SPY & Regimi", "Volatilità: Realizzata (Grigio) vs GARCH (Blu)", "Probabilità P(High Vol)")
     )
     
-    # Row 1: Prezzo con regimi
+    # --- ROW 1: Prezzo con Regimi ---
     for state in range(3):
         mask = df_plot['HMM_State'] == state
         if mask.sum() > 0:
@@ -506,17 +508,46 @@ def create_combined_dashboard_chart(df, garch_vol, n_days=90):
         showlegend=False, hoverinfo='skip'
     ), row=1, col=1)
     
-    # Row 2: Volatilità
+    # --- ROW 2: Volatilità ---
+    
+    # A. Volatilità Realizzata (Garman-Klass)
     fig.add_trace(go.Scatter(
         x=df_plot.index, y=df_plot['GK_Vol'] * 100,
-        mode='lines', name='Volatilità',
-        line=dict(color='#212529', width=2),
+        mode='lines', name='Realized Vol',
+        line=dict(color='#212529', width=1.5),
         showlegend=False
     ), row=2, col=1)
     
-    fig.add_hline(y=garch_vol * 100, line_dash="dot", line_color="#007bff", row=2, col=1)
+    # B. GARCH Dinamico (La modifica chiave)
+    if garch_res is not None:
+        # Estrai e annualizza la volatilità condizionale storica
+        cond_vol = garch_res.conditional_volatility * np.sqrt(252)
+        
+        # Allinea le date
+        common_idx = df_plot.index.intersection(cond_vol.index)
+        garch_plot = cond_vol.loc[common_idx]
+        
+        fig.add_trace(go.Scatter(
+            x=garch_plot.index,
+            y=garch_plot.values,
+            mode='lines',
+            name='GARCH Dynamic',
+            line=dict(color='#007bff', width=1.5), # Linea blu continua
+            showlegend=False
+        ), row=2, col=1)
+
+    # C. Forecast puntuale (Puntino finale)
+    last_date = df_plot.index[-1]
+    fig.add_trace(go.Scatter(
+        x=[last_date + timedelta(days=1)],
+        y=[garch_vol * 100],
+        mode='markers',
+        marker=dict(color='#dc3545', size=6, symbol='diamond'),
+        name='Forecast',
+        showlegend=False
+    ), row=2, col=1)
     
-    # Row 3: P(High Vol)
+    # --- ROW 3: Probabilità HMM ---
     fig.add_trace(go.Scatter(
         x=df_plot.index, y=df_plot['P_High'],
         mode='lines', name='P(High)',
@@ -528,16 +559,16 @@ def create_combined_dashboard_chart(df, garch_vol, n_days=90):
     fig.add_hline(y=THRESHOLDS['high_vol'], line_dash="dash", line_color="gray", row=3, col=1)
     
     fig.update_layout(
-        height=650,
+        height=700,
         template='plotly_white',
         hovermode='x unified',
         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
-        margin=dict(l=50, r=30, t=80, b=50)
+        margin=dict(l=50, r=30, t=50, b=50)
     )
     
     fig.update_yaxes(title_text="Prezzo ($)", row=1, col=1)
     fig.update_yaxes(title_text="Vol (%)", row=2, col=1)
-    fig.update_yaxes(title_text="Probabilità", tickformat='.0%', range=[0, 1], row=3, col=1)
+    fig.update_yaxes(title_text="Prob", tickformat='.0%', range=[0, 1.1], row=3, col=1)
     
     return fig
 
@@ -806,7 +837,7 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        fig_combined = create_combined_dashboard_chart(df, garch_vol_ann, n_days=chart_period)
+        fig_combined = create_combined_dashboard_chart(df, garch_vol_ann, garch_res, n_days=chart_period)
         st.plotly_chart(fig_combined, use_container_width=True)
         
         # Grafico prezzo con regimi
