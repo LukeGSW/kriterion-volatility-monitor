@@ -34,7 +34,7 @@ def download_data():
             df = _download_from_yahoo()
 
     # --- 2. VALIDAZIONE CHIUSURA GIORNALIERA ---
-    # Questa è la parte cruciale per risolvere il tuo problema
+    # Questa è la parte cruciale per risolvere il problema dei dati parziali
     df = _validate_market_close(df)
 
     return df
@@ -155,8 +155,6 @@ def _validate_market_close(df):
             
     return df
 
-# data_loader.py - Sostituisci solo la funzione calculate_features
-
 def calculate_features(df):
     """
     Calcola le features di volatilità con filtro "Circuit Breaker".
@@ -172,15 +170,10 @@ def calculate_features(df):
     df['Returns'] = np.log(df['Close'] / df['Close'].shift(1)).fillna(0)
     
     # --- CIRCUIT BREAKER FILTER (PHYSICS BASED) ---
-    # Invece di filtrare sulla media, filtriamo sulla "fisica" del mercato.
-    # Un range intraday (High-Low) > 25% su SPY è quasi impossibile (Circuit Breaker a -20%).
-    # Un errore dati spesso ha range > 90% (es. prezzo che va a zero).
-    
     # Calcola range percentuale intraday
     df['Intraday_Range'] = (df['High'] - df['Low']) / df['Open']
     
     # Soglia di "impossibilità": 25% di escursione in un giorno
-    # Questo permette crash enormi (tipo 1987 o Covid) ma blocca i glitch.
     IMPOSSIBLE_THRESHOLD = 0.25 
     
     # Identifica le righe con dati corrotti
@@ -189,8 +182,6 @@ def calculate_features(df):
     if bad_ticks.sum() > 0:
         print(f"⚠️ Rilevati {bad_ticks.sum()} tick con range > {IMPOSSIBLE_THRESHOLD*100}%. Correzione in corso...")
         # Correzione: Impostiamo High e Low basandoci su Open e Close reali
-        # Assumiamo che Open e Close siano corretti (più stabili) e ricostruiamo un range "normale"
-        # Usiamo la media dei range degli ultimi 5 giorni per ricostruire la candela
         avg_range = df['Intraday_Range'].rolling(5).median().fillna(0.01)
         
         # Sovrascriviamo solo le righe corrotte
@@ -199,7 +190,7 @@ def calculate_features(df):
     
     # ---------------------------------------------
 
-    # 2. Garman-Klass Volatility
+    # 2. Garman-Klass Volatility (Raw Calculation)
     epsilon = 1e-8 
     log_hl = np.log(df['High'] / (df['Low'] + epsilon)) ** 2
     log_co = np.log(df['Close'] / (df['Open'] + epsilon)) ** 2
@@ -210,15 +201,27 @@ def calculate_features(df):
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df['Garman_Klass'] = df['Garman_Klass'].interpolate(method='linear').fillna(0)
     
-    # Safety Cap Rilassato:
-    # Varianza 0.05 = ~22% movimento giornaliero. 
-    # Abbastanza alto da includere il Black Monday 1987 (-20.4%), ma blocca infiniti.
+    # Safety Cap Rilassato (Varianza 0.05 = ~22% movimento daily)
     df['Garman_Klass'] = df['Garman_Klass'].clip(upper=0.05)
     
-    # 3. Volatilità realizzata rolling
-    window = HMM_PARAMS['vol_window']
-    df['GK_Vol'] = np.sqrt(df['Garman_Klass'].rolling(window=window).mean() * 252)
+    # =========================================================================
+    # MODIFICA KRITERION QUANT: Feature Engineering per Reattività
+    # =========================================================================
     
+    # 1. Volatilità Istantanea Annualizzata
+    # Invece di mediare prima (che crea lag), annualizziamo subito il dato daily.
+    df['GK_Daily_Ann'] = np.sqrt(df['Garman_Klass'] * 252)
+
+    # 2. Smoothing "Fast" (Media Esponenziale)
+    # Sostituisce la vecchia rolling(20). span=5 reagisce in ~2-3 giorni invece di 20.
+    # Questo permette di catturare gli spike improvvisi.
+    df['GK_Vol'] = df['GK_Daily_Ann'].ewm(span=5, adjust=False).mean()
+    
+    # 3. Log-Volatility per HMM
+    # L'HMM assume distribuzioni Gaussiane. La volatilità è Log-Normale.
+    # Usare il logaritmo migliora drasticamente la capacità dell'HMM di fittare i regimi.
+    df['Log_Vol'] = np.log(df['GK_Vol'] + 1e-6)
+
     # Pulizia NaN iniziali
     df.dropna(inplace=True)
     
