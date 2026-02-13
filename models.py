@@ -29,7 +29,10 @@ def train_hmm(df):
     mapping = None
     
     # 1. Preparazione Dati
-    X = df[['GK_Vol']].values
+    # MODIFICA: Usiamo la Log-Volatility invece della Volatilità pura.
+    # Questo rende la distribuzione più simile a una Gaussiana, aiutando l'HMM.
+    X = df[['Log_Vol']].values
+    
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     
@@ -59,7 +62,9 @@ def train_hmm(df):
 
 def get_hmm_states(df, model, scaler, mapping):
     """Inferenza degli stati HMM."""
-    X = df[['GK_Vol']].values
+    
+    # MODIFICA: Coerenza con il training, usiamo Log_Vol
+    X = df[['Log_Vol']].values
     X_scaled = scaler.transform(X)
     
     hidden_states = model.predict(X_scaled)
