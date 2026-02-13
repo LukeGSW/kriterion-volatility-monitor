@@ -1,5 +1,5 @@
-# app.py - Kriterion Volatility Monitor v2.0
-# Dashboard Professionale per Analisi Volatilità SPY con HMM + GARCH
+# app.py - Kriterion Volatility Monitor v2.1
+# Dashboard Professionale per Analisi Volatilità SPY con HMM + GARCH (VIX Compatible)
 
 import streamlit as st
 import pandas as pd
@@ -24,6 +24,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Rilevamento Modalità (VIX o Equity Standard)
+IS_VIX = 'VIX' in TICKER.upper()
 
 # ============================================================================
 # CSS CUSTOM PROFESSIONALE
@@ -279,10 +282,15 @@ st.markdown("""
 # ============================================================================
 
 def create_price_regime_chart(df, n_days=252):
-    """Grafico prezzo SPY con overlay regimi di volatilità."""
+    """Grafico prezzo SPY (o Livello VIX) con overlay regimi di volatilità."""
     df_plot = df.tail(n_days).copy()
     
     fig = go.Figure()
+    
+    # Adattamento Etichette VIX vs Equity
+    y_col = 'Close'
+    y_label = "Livello VIX" if IS_VIX else "Prezzo ($)"
+    title_text = f"📈 {y_label} con Regimi di Volatilità"
     
     # Punti colorati per regime
     for state in range(3):
@@ -290,27 +298,27 @@ def create_price_regime_chart(df, n_days=252):
         if mask.sum() > 0:
             fig.add_trace(go.Scatter(
                 x=df_plot.index[mask],
-                y=df_plot.loc[mask, 'Close'],
+                y=df_plot.loc[mask, y_col],
                 mode='markers',
                 name=REGIME_LABELS[state],
                 marker=dict(color=REGIME_COLORS[state], size=5, opacity=0.8),
-                hovertemplate='%{x}<br>$%{y:.2f}<br>' + REGIME_LABELS[state] + '<extra></extra>'
+                hovertemplate='%{x}<br>' + f'{y_label}: ' + '%{y:.2f}<br>' + REGIME_LABELS[state] + '<extra></extra>'
             ))
     
-    # Linea prezzo
+    # Linea prezzo/livello
     fig.add_trace(go.Scatter(
         x=df_plot.index,
-        y=df_plot['Close'],
+        y=df_plot[y_col],
         mode='lines',
-        name='SPY',
+        name=TICKER,
         line=dict(color='#1f77b4', width=1.5),
         hoverinfo='skip'
     ))
     
     fig.update_layout(
-        title=dict(text="📈 Prezzo SPY con Regimi di Volatilità", font=dict(size=16)),
+        title=dict(text=title_text, font=dict(size=16)),
         xaxis_title="Data",
-        yaxis_title="Prezzo ($)",
+        yaxis_title=y_label,
         hovermode='x unified',
         height=450,
         template='plotly_white',
@@ -370,71 +378,93 @@ def create_probability_chart(df, n_days=252):
     return fig
 
 
-# Inserire in app.py al posto della vecchia create_volatility_comparison_chart
-
 def create_volatility_comparison_chart(df, garch_vol, garch_res, n_days=120):
-    """Grafico confronto volatilità realizzata vs GARCH Conditional Volatility."""
+    """
+    Grafico confronto volatilità.
+    ADATTATO PER VIX: Se IS_VIX è True, mostriamo il Livello VIX vs la sua Media Mobile
+    invece di confrontare "VIX Level" (GK_Vol) con "VVIX" (GARCH), che hanno scale diverse.
+    """
     df_plot = df.tail(n_days).copy()
-    
     fig = go.Figure()
     
-    # 1. Volatilità realizzata (Garman-Klass)
-    fig.add_trace(go.Scatter(
-        x=df_plot.index,
-        y=df_plot['GK_Vol'] * 100,
-        mode='lines',
-        name='Realized Vol (GK)',
-        line=dict(color='#212529', width=2),
-        hovertemplate='Realized: %{y:.2f}%<extra></extra>'
-    ))
-    
-    # 2. GARCH Conditional Volatility (Storico dinamico)
-    # garch_res.conditional_volatility è la deviazione standard giornaliera in % (perché input * 100)
-    # Dobbiamo annualizzarla: sigma_daily * sqrt(252)
-    if garch_res is not None:
-        # Estraiamo la serie allineata con le date
-        cond_vol = garch_res.conditional_volatility
-        
-        # Annualizziamo
-        garch_history_ann = cond_vol * np.sqrt(252)
-        
-        # Filtriamo per le date del grafico
-        # Intersezione degli indici per evitare errori se le date non coincidono perfettamente
-        common_idx = df_plot.index.intersection(garch_history_ann.index)
-        garch_plot_series = garch_history_ann.loc[common_idx]
-        
+    if IS_VIX:
+        # --- MODALITA' VIX ---
+        # Mostriamo il livello VIX (chiusura) e una media mobile per contesto
         fig.add_trace(go.Scatter(
-            x=garch_plot_series.index,
-            y=garch_plot_series.values,
+            x=df_plot.index,
+            y=df_plot['Close'],
             mode='lines',
-            name='GARCH Conditional',
-            line=dict(color='#007bff', width=2, dash='solid'), # Linea solida blu
-            hovertemplate='GARCH: %{y:.2f}%<extra></extra>'
+            name='VIX Level',
+            line=dict(color='#212529', width=2),
+            hovertemplate='VIX: %{y:.2f}<extra></extra>'
         ))
+        
+        # Aggiungiamo una SMA 20 per dare contesto al trend
+        sma = df_plot['Close'].rolling(20).mean()
+        fig.add_trace(go.Scatter(
+            x=df_plot.index,
+            y=sma,
+            mode='lines',
+            name='Media Mobile 20gg',
+            line=dict(color='#6c757d', width=1, dash='dash'),
+            hovertemplate='SMA: %{y:.2f}<extra></extra>'
+        ))
+        
+        title_text = "📉 Livello VIX vs Trend (SMA 20)"
+        y_title = "VIX Index"
+        
+    else:
+        # --- MODALITA' EQUITY (SPY) ---
+        # 1. Volatilità realizzata (Garman-Klass)
+        fig.add_trace(go.Scatter(
+            x=df_plot.index,
+            y=df_plot['GK_Vol'] * 100,
+            mode='lines',
+            name='Realized Vol (GK)',
+            line=dict(color='#212529', width=2),
+            hovertemplate='Realized: %{y:.2f}%<extra></extra>'
+        ))
+        
+        # 2. GARCH Conditional Volatility
+        if garch_res is not None:
+            cond_vol = garch_res.conditional_volatility * np.sqrt(252)
+            common_idx = df_plot.index.intersection(cond_vol.index)
+            garch_plot_series = cond_vol.loc[common_idx]
+            
+            fig.add_trace(go.Scatter(
+                x=garch_plot_series.index,
+                y=garch_plot_series.values,
+                mode='lines',
+                name='GARCH Conditional',
+                line=dict(color='#007bff', width=2, dash='solid'),
+                hovertemplate='GARCH: %{y:.2f}%<extra></extra>'
+            ))
 
-    # 3. Forecast Futuro (Puntino o linea tratteggiata finale)
-    # Mettiamo un marker alla fine per indicare la previsione "domani"
-    last_date = df_plot.index[-1]
-    fig.add_trace(go.Scatter(
-        x=[last_date + timedelta(days=1)], # Spostato di 1 giorno avanti
-        y=[garch_vol * 100],
-        mode='markers+text',
-        name='Forecast (1-step)',
-        marker=dict(color='#dc3545', size=10, symbol='diamond'),
-        text=[f"{garch_vol*100:.1f}%"],
-        textposition="top center",
-        showlegend=False
-    ))
-    
-    # Media storica
-    avg_vol = df_plot['GK_Vol'].mean() * 100
-    fig.add_hline(y=avg_vol, line_dash="dash", line_color="#6c757d",
-                  annotation_text=f"Media: {avg_vol:.2f}%")
+        # 3. Forecast Futuro
+        last_date = df_plot.index[-1]
+        fig.add_trace(go.Scatter(
+            x=[last_date + timedelta(days=1)],
+            y=[garch_vol * 100],
+            mode='markers+text',
+            name='Forecast (1-step)',
+            marker=dict(color='#dc3545', size=10, symbol='diamond'),
+            text=[f"{garch_vol*100:.1f}%"],
+            textposition="top center",
+            showlegend=False
+        ))
+        
+        # Media storica
+        avg_vol = df_plot['GK_Vol'].mean() * 100
+        fig.add_hline(y=avg_vol, line_dash="dash", line_color="#6c757d",
+                    annotation_text=f"Media: {avg_vol:.2f}%")
+        
+        title_text = "📉 Volatilità Realizzata vs GARCH Dinamico"
+        y_title = "Volatilità Annualizzata (%)"
     
     fig.update_layout(
-        title=dict(text="📉 Volatilità Realizzata vs GARCH Dinamico", font=dict(size=16)),
+        title=dict(text=title_text, font=dict(size=16)),
         xaxis_title="Data",
-        yaxis_title="Volatilità Annualizzata (%)",
+        yaxis_title=y_title,
         hovermode='x unified',
         height=400,
         template='plotly_white',
@@ -449,8 +479,15 @@ def create_regime_distribution_chart(df):
     """Grafico distribuzione volatilità per regime (violin plot o histogram)."""
     fig = go.Figure()
     
+    # Adattamento etichette
+    x_label = "Livello VIX" if IS_VIX else "Volatilità Annualizzata (%)"
+    
     for state in range(3):
         mask = df['HMM_State'] == state
+        
+        # Se IS_VIX è True, GK_Vol nel data_loader è stato impostato come Close/100.
+        # Moltiplicando per 100 riotteniamo il livello del VIX.
+        # Se IS_VIX è False, GK_Vol è la volatilità decimale. Moltiplicando per 100 otteniamo la %.
         vol_data = df.loc[mask, 'GK_Vol'] * 100
         
         fig.add_trace(go.Histogram(
@@ -462,8 +499,8 @@ def create_regime_distribution_chart(df):
         ))
     
     fig.update_layout(
-        title=dict(text="📊 Distribuzione Volatilità per Regime", font=dict(size=16)),
-        xaxis_title="Volatilità Annualizzata (%)",
+        title=dict(text=f"📊 Distribuzione {x_label} per Regime", font=dict(size=16)),
+        xaxis_title=x_label,
         yaxis_title="Frequenza",
         barmode='overlay',
         height=350,
@@ -475,27 +512,30 @@ def create_regime_distribution_chart(df):
     return fig
 
 
-# Incolla questo in app.py sostituendo la vecchia create_combined_dashboard_chart
-
 def create_combined_dashboard_chart(df, garch_vol, garch_res, n_days=90):
     """Grafico combinato con prezzo, volatilità dinamica e probabilità."""
     df_plot = df.tail(n_days).copy()
+    
+    # Titoli dinamici
+    t1 = "Livello VIX & Regimi" if IS_VIX else "Prezzo SPY & Regimi"
+    t2 = "VIX Trend (Level)" if IS_VIX else "Volatilità: Realizzata vs GARCH"
     
     fig = make_subplots(
         rows=3, cols=1,
         shared_xaxes=True,
         vertical_spacing=0.08,
         row_heights=[0.45, 0.30, 0.25],
-        subplot_titles=("Prezzo SPY & Regimi", "Volatilità: Realizzata (Grigio) vs GARCH (Blu)", "Probabilità P(High Vol)")
+        subplot_titles=(t1, t2, "Probabilità P(High Vol)")
     )
     
-    # --- ROW 1: Prezzo con Regimi ---
+    # --- ROW 1: Asset Principale (Prezzo o Livello VIX) ---
+    y_col = 'Close'
     for state in range(3):
         mask = df_plot['HMM_State'] == state
         if mask.sum() > 0:
             fig.add_trace(go.Scatter(
                 x=df_plot.index[mask],
-                y=df_plot.loc[mask, 'Close'],
+                y=df_plot.loc[mask, y_col],
                 mode='markers',
                 name=REGIME_LABELS[state],
                 marker=dict(color=REGIME_COLORS[state], size=5),
@@ -503,49 +543,56 @@ def create_combined_dashboard_chart(df, garch_vol, garch_res, n_days=90):
             ), row=1, col=1)
     
     fig.add_trace(go.Scatter(
-        x=df_plot.index, y=df_plot['Close'],
+        x=df_plot.index, y=df_plot[y_col],
         mode='lines', line=dict(color='#1f77b4', width=1),
         showlegend=False, hoverinfo='skip'
     ), row=1, col=1)
     
     # --- ROW 2: Volatilità ---
-    
-    # A. Volatilità Realizzata (Garman-Klass)
-    fig.add_trace(go.Scatter(
-        x=df_plot.index, y=df_plot['GK_Vol'] * 100,
-        mode='lines', name='Realized Vol',
-        line=dict(color='#212529', width=1.5),
-        showlegend=False
-    ), row=2, col=1)
-    
-    # B. GARCH Dinamico (La modifica chiave)
-    if garch_res is not None:
-        # Estrai e annualizza la volatilità condizionale storica
-        cond_vol = garch_res.conditional_volatility * np.sqrt(252)
-        
-        # Allinea le date
-        common_idx = df_plot.index.intersection(cond_vol.index)
-        garch_plot = cond_vol.loc[common_idx]
-        
+    if IS_VIX:
+        # Se siamo in modalità VIX, nel secondo pannello mostriamo il livello VIX pulito
+        # per enfatizzare i picchi, senza confonderlo con il GARCH (che sarebbe VVIX)
         fig.add_trace(go.Scatter(
-            x=garch_plot.index,
-            y=garch_plot.values,
-            mode='lines',
-            name='GARCH Dynamic',
-            line=dict(color='#007bff', width=1.5), # Linea blu continua
+            x=df_plot.index, y=df_plot['Close'],
+            mode='lines', name='VIX Level',
+            line=dict(color='#212529', width=1.5),
             showlegend=False
         ), row=2, col=1)
+    else:
+        # Modalità Equity Standard
+        # A. Volatilità Realizzata
+        fig.add_trace(go.Scatter(
+            x=df_plot.index, y=df_plot['GK_Vol'] * 100,
+            mode='lines', name='Realized Vol',
+            line=dict(color='#212529', width=1.5),
+            showlegend=False
+        ), row=2, col=1)
+        
+        # B. GARCH Dinamico
+        if garch_res is not None:
+            cond_vol = garch_res.conditional_volatility * np.sqrt(252)
+            common_idx = df_plot.index.intersection(cond_vol.index)
+            garch_plot = cond_vol.loc[common_idx]
+            
+            fig.add_trace(go.Scatter(
+                x=garch_plot.index,
+                y=garch_plot.values,
+                mode='lines',
+                name='GARCH Dynamic',
+                line=dict(color='#007bff', width=1.5), # Linea blu continua
+                showlegend=False
+            ), row=2, col=1)
 
-    # C. Forecast puntuale (Puntino finale)
-    last_date = df_plot.index[-1]
-    fig.add_trace(go.Scatter(
-        x=[last_date + timedelta(days=1)],
-        y=[garch_vol * 100],
-        mode='markers',
-        marker=dict(color='#dc3545', size=6, symbol='diamond'),
-        name='Forecast',
-        showlegend=False
-    ), row=2, col=1)
+        # C. Forecast puntuale
+        last_date = df_plot.index[-1]
+        fig.add_trace(go.Scatter(
+            x=[last_date + timedelta(days=1)],
+            y=[garch_vol * 100],
+            mode='markers',
+            marker=dict(color='#dc3545', size=6, symbol='diamond'),
+            name='Forecast',
+            showlegend=False
+        ), row=2, col=1)
     
     # --- ROW 3: Probabilità HMM ---
     fig.add_trace(go.Scatter(
@@ -566,8 +613,11 @@ def create_combined_dashboard_chart(df, garch_vol, garch_res, n_days=90):
         margin=dict(l=50, r=30, t=50, b=50)
     )
     
-    fig.update_yaxes(title_text="Prezzo ($)", row=1, col=1)
-    fig.update_yaxes(title_text="Vol (%)", row=2, col=1)
+    y1_title = "Livello" if IS_VIX else "Prezzo ($)"
+    y2_title = "Livello" if IS_VIX else "Vol (%)"
+    
+    fig.update_yaxes(title_text=y1_title, row=1, col=1)
+    fig.update_yaxes(title_text=y2_title, row=2, col=1)
     fig.update_yaxes(title_text="Prob", tickformat='.0%', range=[0, 1.1], row=3, col=1)
     
     return fig
@@ -590,12 +640,23 @@ def calculate_regime_stats(df):
         ends = np.where(state_changes == -1)[0]
         durations = ends - starts
         
+        # Adattamento etichette per VIX
+        if IS_VIX:
+            # Per il VIX, GK_Vol è il livello/100. Quindi *100 da il livello.
+            vol_mean = f"{regime_data['GK_Vol'].mean()*100:.2f}"
+            vol_std = f"{regime_data['GK_Vol'].std()*100:.2f}"
+            vol_label = "Livello VIX Medio"
+        else:
+            vol_mean = f"{regime_data['GK_Vol'].mean()*100:.2f}%"
+            vol_std = f"{regime_data['GK_Vol'].std()*100:.2f}%"
+            vol_label = "Vol Media"
+            
         stats.append({
             'Regime': REGIME_LABELS[state],
             'Giorni': len(regime_data),
             'Frequenza': f"{len(regime_data)/len(df)*100:.1f}%",
-            'Vol Media': f"{regime_data['GK_Vol'].mean()*100:.2f}%",
-            'Vol Std': f"{regime_data['GK_Vol'].std()*100:.2f}%",
+            vol_label: vol_mean,
+            'Dev Std': vol_std,
             'Durata Media': f"{durations.mean():.1f} gg" if len(durations) > 0 else "N/A",
             'Num Periodi': len(durations)
         })
@@ -612,7 +673,7 @@ def main():
     st.markdown("""
     <div class="main-header">
         <h1>📉 Kriterion Quant - Volatility Regime Monitor</h1>
-        <p>Sistema di analisi e previsione della volatilità SPY basato su Hidden Markov Model e GARCH</p>
+        <p>Sistema di analisi e previsione della volatilità basato su Hidden Markov Model e GARCH</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -623,7 +684,7 @@ def main():
         st.markdown("### ⚙️ Configurazione")
         
         st.markdown(f"""
-        **Ticker:** {TICKER}  
+        **Ticker:** {TICKER} ({'Modo VIX' if IS_VIX else 'Modo Equity'})  
         **Modello HMM:** {HMM_PARAMS['n_states']} Stati  
         **GARCH:** (1,1)  
         """)
@@ -667,6 +728,7 @@ def main():
     df['P_Medium'] = posteriors[:, 1]
     df['P_High'] = posteriors[:, 2]
     
+    # GARCH: Calcoliamo sempre, ma interpretiamo diversamente
     garch_vol_ann, garch_res = train_garch(df)
     
     # --- CALCOLO SEGNALE ---
@@ -681,12 +743,23 @@ def main():
     # Confidenza (probabilità massima)
     confidence = max(p_high, p_medium, p_low)
     
-    # Logica segnale
+    # Logica generazione segnale
     signal_type = "NEUTRAL"
+    
     if p_high > THRESHOLDS['high_vol']:
         signal_type = "RISK_OFF"
-        if garch_vol_ann > df['GK_Vol'].quantile(THRESHOLDS['garch_percentile']):
-            signal_type = "STRONG_RISK_OFF"
+        
+        # Logica STRONG_RISK_OFF differenziata
+        if IS_VIX:
+            # Se siamo sul VIX, STRONG se siamo nel top 15% dei livelli storici
+            # (Il GARCH qui sarebbe la VVIX, utile ma diversa)
+            if last_row['Close'] > df['Close'].quantile(0.85):
+                signal_type = "STRONG_RISK_OFF"
+        else:
+            # Logica classica Equity: GARCH forecast alto
+            if garch_vol_ann > df['GK_Vol'].quantile(THRESHOLDS['garch_percentile']):
+                signal_type = "STRONG_RISK_OFF"
+            
     elif trend_p_high > THRESHOLDS['alert_change']:
         signal_type = "ALERT"
     elif p_low > THRESHOLDS['low_vol']:
@@ -714,31 +787,50 @@ def main():
     # --- KPI CARDS ---
     col1, col2, col3, col4, col5 = st.columns(5)
     
+    # Card 1: Prezzo
     with col1:
         daily_return = last_row['Returns'] * 100
-        delta_color = "normal" if daily_return >= 0 else "inverse"
         st.metric(
-            label="💰 SPY Close",
+            label=f"💰 {TICKER}",
             value=f"${last_row['Close']:.2f}",
             delta=f"{daily_return:.2f}%"
         )
     
+    # Card 2: Volatilità / Livello
     with col2:
-        st.metric(
-            label="📊 Volatilità Attuale",
-            value=f"{last_row['GK_Vol']*100:.2f}%",
-            delta=None,
-            help="Volatilità Garman-Klass annualizzata (rolling 20gg)"
-        )
+        if IS_VIX:
+            st.metric(
+                label="📊 Livello VIX",
+                value=f"{last_row['Close']:.2f}",
+                delta=None,
+                help="Livello di chiusura indice VIX"
+            )
+        else:
+            st.metric(
+                label="📊 Volatilità Attuale",
+                value=f"{last_row['GK_Vol']*100:.2f}%",
+                delta=None,
+                help="Volatilità Garman-Klass annualizzata"
+            )
     
+    # Card 3: GARCH / VVIX
     with col3:
-        garch_delta = (garch_vol_ann - last_row['GK_Vol']) * 100
-        st.metric(
-            label="🔮 GARCH Forecast",
-            value=f"{garch_vol_ann*100:.2f}%",
-            delta=f"{garch_delta:+.2f}%",
-            help="Previsione volatilità 1-step ahead GARCH(1,1)"
-        )
+        if IS_VIX:
+            # Il GARCH sul VIX è la "Volatilità del VIX" (proxy VVIX)
+            st.metric(
+                label="🔮 GARCH (VVIX Proxy)",
+                value=f"{garch_vol_ann*100:.1f}%",
+                delta=None,
+                help="Volatilità della Volatilità stimata dal GARCH"
+            )
+        else:
+            garch_delta = (garch_vol_ann - last_row['GK_Vol']) * 100
+            st.metric(
+                label="🔮 GARCH Forecast",
+                value=f"{garch_vol_ann*100:.2f}%",
+                delta=f"{garch_delta:+.2f}%",
+                help="Previsione volatilità 1-step ahead GARCH(1,1)"
+            )
     
     with col4:
         st.metric(
@@ -831,8 +923,8 @@ def main():
         st.markdown("""
         <div class="info-box">
             <strong>📖 Come leggere questo grafico:</strong><br>
-            Il grafico mostra tre pannelli sincronizzati: (1) Prezzo SPY con punti colorati in base al regime identificato,
-            (2) Volatilità realizzata Garman-Klass con la previsione GARCH, (3) Probabilità di essere in regime High Volatility.
+            Il grafico mostra tre pannelli sincronizzati: (1) Asset (SPY o VIX) con punti colorati in base al regime identificato,
+            (2) Volatilità/Livello storico, (3) Probabilità di essere in regime High Volatility.
             Quando P(High Vol) supera la soglia del 60%, il sistema genera un segnale RISK-OFF.
         </div>
         """, unsafe_allow_html=True)
@@ -841,7 +933,7 @@ def main():
         st.plotly_chart(fig_combined, use_container_width=True)
         
         # Grafico prezzo con regimi
-        st.markdown("#### 📈 Storico Prezzo e Regimi")
+        st.markdown(f"#### 📈 Storico {'Livello' if IS_VIX else 'Prezzo'} e Regimi")
         fig_price = create_price_regime_chart(df, n_days=chart_period)
         st.plotly_chart(fig_price, use_container_width=True)
     
@@ -882,13 +974,13 @@ def main():
             <div class="info-box">
                 <strong>📖 Note:</strong><br>
                 • <strong>Durata Media:</strong> giorni medi di permanenza nel regime<br>
-                • <strong>Vol Media:</strong> volatilità media annualizzata nel regime<br>
+                • <strong>Vol/Livello Medio:</strong> valore medio nel regime<br>
                 • <strong>Frequenza:</strong> percentuale di tempo trascorso nel regime
             </div>
             """, unsafe_allow_html=True)
         
         # Distribuzione volatilità per regime
-        st.markdown("#### 📊 Distribuzione Volatilità per Regime")
+        st.markdown("#### 📊 Distribuzione Valori per Regime")
         fig_dist = create_regime_distribution_chart(df)
         st.plotly_chart(fig_dist, use_container_width=True)
     
@@ -896,14 +988,13 @@ def main():
     # TAB 3: VOLATILITÀ
     # =========================================================================
     with tab3:
-        st.markdown("#### 📉 Confronto Volatilità Realizzata vs GARCH")
+        st.markdown(f"#### 📉 {'Analisi Livello VIX' if IS_VIX else 'Confronto Volatilità Realizzata vs GARCH'}")
         
         st.markdown("""
         <div class="info-box">
-            <strong>📖 GARCH(1,1):</strong><br>
-            Il modello GARCH cattura la "memoria" della volatilità: shock recenti influenzano la previsione futura.
-            La linea blu tratteggiata mostra la previsione per il prossimo giorno. Se superiore alla media storica,
-            indica aspettativa di volatilità elevata.
+            <strong>📖 Analisi Volatilità:</strong><br>
+            In modalità VIX, questo grafico mostra l'andamento dell'indice di paura rispetto alla sua media mobile.
+            In modalità Equity, mostra la volatilità realizzata (storica) confrontata con la previsione GARCH (dinamica).
         </div>
         """, unsafe_allow_html=True)
         
@@ -915,7 +1006,7 @@ def main():
         
         with col_garch1:
             st.metric(
-                "GARCH Forecast (1-step)",
+                "GARCH Forecast (1-step)" if not IS_VIX else "VVIX Est (GARCH)",
                 f"{garch_vol_ann*100:.2f}%",
                 help="Previsione volatilità per domani"
             )
@@ -924,8 +1015,8 @@ def main():
             avg_vol = df['GK_Vol'].mean() * 100
             st.metric(
                 "Media Storica",
-                f"{avg_vol:.2f}%",
-                help="Volatilità media nel periodo"
+                f"{avg_vol:.2f}{'%' if not IS_VIX else ''}",
+                help="Valore medio nel periodo"
             )
         
         with col_garch3:
@@ -933,19 +1024,19 @@ def main():
             st.metric(
                 "Percentile Attuale",
                 f"{percentile_rank:.0f}°",
-                help="Posizione della volatilità corrente rispetto allo storico"
+                help="Posizione del valore corrente rispetto allo storico"
             )
         
         # Statistiche volatilità
-        st.markdown("#### 📊 Statistiche Volatilità")
+        st.markdown("#### 📊 Statistiche Dettagliate")
         
         vol_stats = df['GK_Vol'].describe() * 100
         vol_df = pd.DataFrame({
             'Statistica': ['Media', 'Std Dev', 'Min', '25%', '50%', '75%', 'Max'],
-            'Valore': [f"{vol_stats['mean']:.2f}%", f"{vol_stats['std']:.2f}%",
-                      f"{vol_stats['min']:.2f}%", f"{vol_stats['25%']:.2f}%",
-                      f"{vol_stats['50%']:.2f}%", f"{vol_stats['75%']:.2f}%",
-                      f"{vol_stats['max']:.2f}%"]
+            'Valore': [f"{vol_stats['mean']:.2f}", f"{vol_stats['std']:.2f}",
+                      f"{vol_stats['min']:.2f}", f"{vol_stats['25%']:.2f}",
+                      f"{vol_stats['50%']:.2f}", f"{vol_stats['75%']:.2f}",
+                      f"{vol_stats['max']:.2f}"]
         })
         
         st.dataframe(vol_df, use_container_width=True, hide_index=True)
@@ -963,7 +1054,7 @@ def main():
         che governano il comportamento delle variabili osservate. Nel nostro caso:
         
         - **Stati nascosti:** 3 regimi di volatilità (Low, Medium, High)
-        - **Variabile osservata:** Volatilità Garman-Klass
+        - **Variabile osservata:** Volatilità Garman-Klass (o Log-VIX)
         - **Output:** Probabilità di trovarsi in ciascun regime
         
         **Perché HMM per la volatilità?**
@@ -997,7 +1088,7 @@ def main():
         | 🟡 NEUTRAL | Nessuna condizione estrema | Allocazione standard |
         | 🟠 ALERT | P(High Vol) in aumento >15% in 5gg | Preparare coperture |
         | 🔴 RISK_OFF | P(High Vol) > 60% | Ridurre esposizione |
-        | 🔴🔴 STRONG_RISK_OFF | P(High Vol) > 60% AND GARCH alto | Copertura aggressiva |
+        | 🔴🔴 STRONG_RISK_OFF | P(High Vol) > 60% AND (GARCH alto o VIX > 85° pct) | Copertura aggressiva |
         
         ---
         
@@ -1029,6 +1120,7 @@ def main():
             <strong>⚠️ Disclaimer:</strong><br>
             Questo strumento è fornito a scopo educativo e di ricerca. 
             I segnali generati non costituiscono consulenza finanziaria né raccomandazioni di investimento. 
+            Le performance passate non sono indicative di risultati futuri. 
             L'utente è responsabile delle proprie decisioni di investimento.
         </div>
         """, unsafe_allow_html=True)
